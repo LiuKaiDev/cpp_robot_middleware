@@ -23,6 +23,18 @@ struct NodeRecord {
     std::set<std::uint64_t> subscriber_endpoints;
 };
 
+struct SharedPoolMetadata {
+    std::string shm_name;
+    std::uint64_t pool_id{0};
+    std::uint64_t segment_size{0};
+    std::uint16_t layout_version{0};
+};
+
+inline bool operator==(const SharedPoolMetadata& left, const SharedPoolMetadata& right) noexcept {
+    return left.shm_name == right.shm_name && left.pool_id == right.pool_id &&
+           left.segment_size == right.segment_size && left.layout_version == right.layout_version;
+}
+
 struct TopicRecord {
     std::uint64_t topic_id{0};
     std::string topic_name;
@@ -32,6 +44,7 @@ struct TopicRecord {
     std::size_t max_message_size{0};
     std::optional<std::uint64_t> publisher_endpoint;
     std::set<std::uint64_t> subscriber_endpoints;
+    SharedPoolMetadata pool;
 };
 
 struct PublisherEndpoint {
@@ -40,6 +53,7 @@ struct PublisherEndpoint {
     std::uint64_t topic_id{0};
     std::size_t max_message_size{0};
     TransportType transport{TransportType::UnixDomainSocket};
+    SharedPoolMetadata pool;
 };
 
 struct SubscriberEndpoint {
@@ -60,15 +74,21 @@ struct EndpointResult {
     ErrorCode error{ErrorCode::Ok};
     std::uint64_t topic_id{0};
     std::uint64_t endpoint_id{0};
+    SharedPoolMetadata pool;
+};
+
+struct DiscoveredSubscriber {
+    std::uint64_t endpoint_id{0};
+    std::string data_socket_path;
+    std::size_t max_message_size{0};
 };
 
 struct DiscoveryResult {
     ErrorCode error{ErrorCode::Ok};
-    std::uint64_t subscriber_endpoint_id{0};
     std::uint64_t topic_id{0};
-    std::string data_socket_path;
-    std::size_t max_message_size{0};
     TransportType transport{TransportType::UnixDomainSocket};
+    SharedPoolMetadata pool;
+    std::vector<DiscoveredSubscriber> subscribers;
 };
 
 class RegistryState {
@@ -79,7 +99,8 @@ class RegistryState {
     EndpointResult advertise(ConnectionId connection, std::uint64_t node_id,
                              const std::string& topic_name, const std::string& type_name,
                              const std::string& type_hash, std::size_t max_message_size,
-                             TransportType transport = TransportType::UnixDomainSocket);
+                             TransportType transport = TransportType::UnixDomainSocket,
+                             SharedPoolMetadata pool = {});
     ErrorCode unadvertise(ConnectionId connection, std::uint64_t node_id,
                           std::uint64_t endpoint_id);
 

@@ -3,9 +3,9 @@
 #include <mw/config.hpp>
 
 #include "detail/frame_protocol.hpp"
+#include "detail/memory_pool.hpp"
+#include "detail/pool_protocol.hpp"
 #include "detail/registry_client.hpp"
-#include "detail/shared_memory.hpp"
-#include "detail/shm_protocol.hpp"
 #include "detail/socket_io.hpp"
 #include "detail/unique_fd.hpp"
 #include "detail/unix_socket.hpp"
@@ -99,6 +99,7 @@ struct Subscriber::Impl {
         const detail::RegistryEndpoint endpoint = registry_session->subscribe(topic, config);
         topic_id = endpoint.topic_id;
         endpoint_id = endpoint.endpoint_id;
+        discovered_pool = endpoint.pool;
     }
 
     ~Impl() {
@@ -108,7 +109,7 @@ struct Subscriber::Impl {
     }
 
     std::size_t wireHeaderSize() const noexcept {
-        return config.transport == TransportType::SharedMemory ? detail::kShmNotificationSize
+        return config.transport == TransportType::SharedMemory ? detail::kPoolNotificationSize
                                                                : detail::kFrameHeaderSize;
     }
 
@@ -154,7 +155,7 @@ struct Subscriber::Impl {
             const detail::FrameValidation validation =
                 detail::validateFrameHeader(*decoded_header, config.max_message_size);
             if (validation == detail::FrameValidation::BadMagic) {
-                return {decoded_header->magic == detail::kShmNotificationMagic
+                return {decoded_header->magic == detail::kPoolNotificationMagic
                             ? ReceiveStatus::TransportMismatch
                             : ReceiveStatus::InvalidFrame,
                         std::nullopt};
@@ -192,64 +193,68 @@ struct Subscriber::Impl {
 
     ReceiveResult receiveSharedMemory() {
         const auto notification =
-            detail::decodeShmNotification(header_buffer.data(), detail::kShmNotificationSize);
+            detail::decodePoolNotification(header_buffer.data(), detail::kPoolNotificationSize);
         if (!notification.has_value()) {
             return {ReceiveStatus::InvalidFrame, std::nullopt};
         }
-        const detail::ShmValidation notification_validation =
-            detail::validateShmNotification(*notification, config.max_message_size, topic_id);
-        if (notification_validation == detail::ShmValidation::BadMagic) {
-            const auto uds_header =
-                detail::decodeFrameHeader(header_buffer.data(), detail::kFrameHeaderSize);
-            return {uds_header.has_value() && uds_header->magic == detail::kFrameMagic
-                        ? ReceiveStatus::TransportMismatch
-                        : ReceiveStatus::InvalidFrame,
-                    std::nullopt};
-        }
-        if (notification_validation == detail::ShmValidation::PayloadTooLarge) {
+        const ErrorCode notification_validation =
+            detail::validatePoolNotification(*notification, config.max_message_size, topic_id);
+        if (notification_validation == ErrorCode::MessageTooLarge) {
             return {ReceiveStatus::MessageTooLarge, std::nullopt};
         }
-        if (notification_validation != detail::ShmValidation::Valid) {
+        if (notification_validation != ErrorCode::Ok) {
             return {ReceiveStatus::InvalidFrame, std::nullopt};
         }
 
         try {
-            const auto& handle = notification->handle;
-            detail::SharedMemoryRegion region = detail::SharedMemoryRegion::openReadOnly(
-                handle.shm_name, static_cast<std::size_t>(handle.segment_size));
-            const auto header = detail::decodeSharedMemoryHeader(
-                static_cast<const std::uint8_t*>(region.data()), detail::kSharedMemoryHeaderSize);
-            if (!header.has_value() ||
-                detail::validateSharedMemoryHeader(*header, region.size(),
-                                                   config.max_message_size) !=
-                    detail::ShmValidation::Valid ||
-                !detail::sharedMemoryMetadataMatches(*header, handle)) {
+            if (!discovered_pool.shm_name.empty() &&
+                (discovered_pool.shm_name != notification->pool.shm_name ||
+                 discovered_pool.pool_id != notification->pool.pool_id ||
+                 discovered_pool.segment_size != notification->pool.segment_size ||
+                 discovered_pool.layout_version != notification->pool.layout_version)) {
+                return {ReceiveStatus::InvalidSharedMemory, std::nullopt};
+            }
+            if (!pool_view) {
+                pool_view = detail::MemoryPoolView::open(notification->pool, topic_id);
+            } else if (pool_view->descriptor().shm_name != notification->pool.shm_name ||
+                       pool_view->descriptor().pool_id != notification->pool.pool_id ||
+                       pool_view->descriptor().segment_size != notification->pool.segment_size) {
                 return {ReceiveStatus::InvalidSharedMemory, std::nullopt};
             }
 
-            std::vector<std::uint8_t> message_payload(
-                static_cast<std::size_t>(header->payload_size));
-            if (!message_payload.empty()) {
-                const auto* payload_source = static_cast<const std::uint8_t*>(region.data()) +
-                                             detail::kSharedMemoryHeaderSize;
-                std::memcpy(message_payload.data(), payload_source, message_payload.size());
+            const detail::ChunkViewResult view =
+                pool_view->read(notification->handle, config.max_message_size);
+            if (view.error != ErrorCode::Ok || view.payload_size != notification->payload_size ||
+                view.sequence != notification->sequence ||
+                view.publish_timestamp_ns != notification->publish_timestamp_ns) {
+                return {ReceiveStatus::InvalidSharedMemory, std::nullopt};
             }
 
-            const auto encoded_ack = detail::encodeShmAck(
-                {detail::kShmNotificationMagic, detail::kShmNotificationVersion,
-                 detail::ShmFrameKind::Ack, header->sequence});
-            const detail::IoResult ack_result =
-                detail::writeAll(connection.get(), encoded_ack.data(), encoded_ack.size());
-            if (ack_result.status != detail::IoStatus::Complete) {
-                return {ack_result.status == detail::IoStatus::Closed ? ReceiveStatus::Disconnected
-                                                                      : ReceiveStatus::IoError,
+            std::vector<std::uint8_t> message_payload(view.payload_size);
+            if (!message_payload.empty()) {
+                std::memcpy(message_payload.data(), view.payload, message_payload.size());
+            }
+
+            const auto encoded_release =
+                detail::encodePoolRelease({notification->handle, notification->sequence});
+            const detail::IoResult release_result =
+                detail::writeAll(connection.get(), encoded_release.data(), encoded_release.size());
+            if (release_result.status != detail::IoStatus::Complete) {
+                return {release_result.status == detail::IoStatus::Closed
+                            ? ReceiveStatus::Disconnected
+                            : ReceiveStatus::IoError,
                         std::nullopt};
             }
 
-            ReceivedMessage message{std::move(message_payload), header->sequence,
-                                    header->publish_timestamp_ns};
+            ReceivedMessage message{
+                std::move(message_payload),         view.sequence,
+                view.publish_timestamp_ns,          notification->handle.pool_id,
+                notification->handle.chunk_index,   notification->handle.generation,
+                notification->handle.payload_offset};
             resetFrame();
             return {ReceiveStatus::MessageReady, std::move(message)};
+        } catch (const MiddlewareError&) {
+            return {ReceiveStatus::InvalidSharedMemory, std::nullopt};
         } catch (const std::system_error& error) {
             if (error.code().value() == ENOENT) {
                 return {ReceiveStatus::SharedMemoryNotFound, std::nullopt};
@@ -279,7 +284,7 @@ struct Subscriber::Impl {
     SubscriberConfig config;
     detail::UnixListener listener;
     detail::UniqueFd connection;
-    std::array<std::uint8_t, detail::kShmNotificationSize> header_buffer{};
+    std::array<std::uint8_t, detail::kPoolNotificationSize> header_buffer{};
     std::size_t header_bytes{0};
     std::optional<detail::FrameHeader> decoded_header;
     std::vector<std::uint8_t> payload;
@@ -288,6 +293,8 @@ struct Subscriber::Impl {
     std::shared_ptr<detail::RegistrySession> registry_session;
     std::uint64_t topic_id{0};
     std::uint64_t endpoint_id{0};
+    detail::PoolDescriptor discovered_pool;
+    std::unique_ptr<detail::MemoryPoolView> pool_view;
 };
 
 Subscriber::Subscriber(std::string topic, const SubscriberConfig& config) {

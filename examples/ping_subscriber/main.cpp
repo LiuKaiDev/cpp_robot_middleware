@@ -20,8 +20,9 @@ int main(int argc, char** argv) {
 
         mw::Context context =
             options.registry_path.empty()
-                ? mw::Context{"ping_subscriber"}
-                : mw::Context{"ping_subscriber", mw::RegistryConfig{options.registry_path}};
+                ? mw::Context{options.node_name.empty() ? "ping_subscriber" : options.node_name}
+                : mw::Context{options.node_name.empty() ? "ping_subscriber" : options.node_name,
+                              mw::RegistryConfig{options.registry_path}};
         mw::SubscriberConfig config;
         config.socket_path = options.socket_path;
         config.max_message_size = std::max(mw::kDefaultMaxMessageSize, options.payload_size);
@@ -33,6 +34,10 @@ int main(int argc, char** argv) {
         std::size_t received = 0;
         std::size_t sequence_errors = 0;
         std::size_t payload_errors = 0;
+        std::uint64_t last_pool_id = 0;
+        std::uint32_t last_chunk_index = 0;
+        std::uint32_t last_generation = 0;
+        std::uint64_t last_payload_offset = 0;
 
         for (std::size_t index = 0; index < options.count; ++index) {
             auto message = subscriber.waitAndTake(options.timeout);
@@ -51,10 +56,16 @@ int main(int argc, char** argv) {
                 ++payload_errors;
             }
             ++received;
+            last_pool_id = message->pool_id;
+            last_chunk_index = message->chunk_index;
+            last_generation = message->chunk_generation;
+            last_payload_offset = message->payload_offset;
         }
 
         std::cout << "received=" << received << " sequence_errors=" << sequence_errors
-                  << " payload_errors=" << payload_errors << '\n';
+                  << " payload_errors=" << payload_errors << " pool_id=" << last_pool_id
+                  << " chunk_index=" << last_chunk_index << " generation=" << last_generation
+                  << " payload_offset=" << last_payload_offset << '\n';
         return received == options.count && sequence_errors == 0U && payload_errors == 0U ? 0 : 1;
     } catch (const std::exception& error) {
         std::cerr << "subscriber error: " << error.what() << '\n';

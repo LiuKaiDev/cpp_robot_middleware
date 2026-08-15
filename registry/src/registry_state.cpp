@@ -11,6 +11,17 @@ bool validTransport(TransportType transport) noexcept {
     return transport == TransportType::UnixDomainSocket || transport == TransportType::SharedMemory;
 }
 
+bool validPoolMetadata(TransportType transport, const SharedPoolMetadata& pool) noexcept {
+    if (transport == TransportType::UnixDomainSocket) {
+        return pool.shm_name.empty() && pool.pool_id == 0U && pool.segment_size == 0U &&
+               pool.layout_version == 0U;
+    }
+    return pool.shm_name.size() >= 2U && pool.shm_name.size() <= 192U &&
+           pool.shm_name.front() == '/' && pool.shm_name.find('\0') == std::string::npos &&
+           pool.shm_name.find('/', 1U) == std::string::npos && pool.pool_id != 0U &&
+           pool.segment_size != 0U && pool.layout_version == 1U;
+}
+
 } // namespace
 
 IdResult RegistryState::registerNode(ConnectionId connection, const std::string& node_name) {
@@ -50,28 +61,28 @@ ErrorCode RegistryState::unregisterNode(ConnectionId connection, std::uint64_t n
 EndpointResult RegistryState::advertise(ConnectionId connection, std::uint64_t node_id,
                                         const std::string& topic_name, const std::string& type_name,
                                         const std::string& type_hash, std::size_t max_message_size,
-                                        TransportType transport) {
+                                        TransportType transport, SharedPoolMetadata pool) {
     NodeRecord* node = ownedNode(connection, node_id);
     if (node == nullptr) {
-        return {ErrorCode::NotRegistered, 0, 0};
+        return {ErrorCode::NotRegistered, 0, 0, {}};
     }
     if (topic_name.empty() || type_name.empty() || type_hash.empty() ||
         max_message_size > std::numeric_limits<std::uint32_t>::max() ||
-        !validTransport(transport)) {
-        return {ErrorCode::InvalidArgument, 0, 0};
+        !validTransport(transport) || !validPoolMetadata(transport, pool)) {
+        return {ErrorCode::InvalidArgument, 0, 0, {}};
     }
 
     const auto topic_iterator = topic_names_.find(topic_name);
     if (topic_iterator != topic_names_.end()) {
         TopicRecord& topic = topics_.at(topic_iterator->second);
         if (topic.type_name != type_name || topic.type_hash != type_hash) {
-            return {ErrorCode::TypeMismatch, topic.topic_id, 0};
+            return {ErrorCode::TypeMismatch, topic.topic_id, 0, {}};
         }
         if (topic.transport != transport) {
-            return {ErrorCode::TransportMismatch, topic.topic_id, 0};
+            return {ErrorCode::TransportMismatch, topic.topic_id, 0, {}};
         }
         if (topic.publisher_endpoint.has_value()) {
-            return {ErrorCode::DuplicatePublisher, topic.topic_id, 0};
+            return {ErrorCode::DuplicatePublisher, topic.topic_id, 0, {}};
         }
     }
 
@@ -79,11 +90,12 @@ EndpointResult RegistryState::advertise(ConnectionId connection, std::uint64_t n
         findOrCreateTopic(topic_name, type_name, type_hash, max_message_size, transport);
     const std::uint64_t endpoint_id = next_endpoint_id_++;
     publishers_.emplace(endpoint_id, PublisherEndpoint{endpoint_id, node_id, topic.topic_id,
-                                                       max_message_size, transport});
+                                                       max_message_size, transport, pool});
     topic.publisher_endpoint = endpoint_id;
+    topic.pool = pool;
     topic.max_message_size = std::min(topic.max_message_size, max_message_size);
     node->publisher_endpoints.insert(endpoint_id);
-    return {ErrorCode::Ok, topic.topic_id, endpoint_id};
+    return {ErrorCode::Ok, topic.topic_id, endpoint_id, std::move(pool)};
 }
 
 ErrorCode RegistryState::unadvertise(ConnectionId connection, std::uint64_t node_id,
@@ -99,6 +111,7 @@ ErrorCode RegistryState::unadvertise(ConnectionId connection, std::uint64_t node
     node->publisher_endpoints.erase(endpoint_id);
     publishers_.erase(endpoint_iterator);
     topics_.at(topic_id).publisher_endpoint.reset();
+    topics_.at(topic_id).pool = {};
     recomputeTopicMaxMessageSize(topic_id);
     eraseTopicIfEmpty(topic_id);
     return ErrorCode::Ok;
@@ -111,22 +124,22 @@ EndpointResult RegistryState::subscribe(ConnectionId connection, std::uint64_t n
                                         TransportType transport) {
     NodeRecord* node = ownedNode(connection, node_id);
     if (node == nullptr) {
-        return {ErrorCode::NotRegistered, 0, 0};
+        return {ErrorCode::NotRegistered, 0, 0, {}};
     }
     if (topic_name.empty() || type_name.empty() || type_hash.empty() || data_socket_path.empty() ||
         max_message_size > std::numeric_limits<std::uint32_t>::max() ||
         !validTransport(transport)) {
-        return {ErrorCode::InvalidArgument, 0, 0};
+        return {ErrorCode::InvalidArgument, 0, 0, {}};
     }
 
     const auto topic_iterator = topic_names_.find(topic_name);
     if (topic_iterator != topic_names_.end()) {
         const TopicRecord& topic = topics_.at(topic_iterator->second);
         if (topic.type_name != type_name || topic.type_hash != type_hash) {
-            return {ErrorCode::TypeMismatch, topic.topic_id, 0};
+            return {ErrorCode::TypeMismatch, topic.topic_id, 0, {}};
         }
         if (topic.transport != transport) {
-            return {ErrorCode::TransportMismatch, topic.topic_id, 0};
+            return {ErrorCode::TransportMismatch, topic.topic_id, 0, {}};
         }
     }
 
@@ -139,7 +152,7 @@ EndpointResult RegistryState::subscribe(ConnectionId connection, std::uint64_t n
     topic.subscriber_endpoints.insert(endpoint_id);
     topic.max_message_size = std::min(topic.max_message_size, max_message_size);
     node->subscriber_endpoints.insert(endpoint_id);
-    return {ErrorCode::Ok, topic.topic_id, endpoint_id};
+    return {ErrorCode::Ok, topic.topic_id, endpoint_id, topic.pool};
 }
 
 ErrorCode RegistryState::unsubscribe(ConnectionId connection, std::uint64_t node_id,
@@ -166,21 +179,21 @@ DiscoveryResult RegistryState::resolve(ConnectionId connection, std::uint64_t no
     const auto publisher_iterator = publishers_.find(publisher_endpoint_id);
     if (node == nullptr || publisher_iterator == publishers_.end() ||
         publisher_iterator->second.node_id != node_id) {
-        return {ErrorCode::EndpointNotFound, 0, 0, {}, 0, TransportType::UnixDomainSocket};
+        return {ErrorCode::EndpointNotFound, 0, TransportType::UnixDomainSocket, {}, {}};
     }
 
     const TopicRecord& topic = topics_.at(publisher_iterator->second.topic_id);
     if (topic.subscriber_endpoints.empty()) {
-        return {ErrorCode::TopicNotFound, 0, topic.topic_id, {}, 0, topic.transport};
+        return {ErrorCode::TopicNotFound, topic.topic_id, topic.transport, topic.pool, {}};
     }
-
-    const SubscriberEndpoint& subscriber = subscribers_.at(*topic.subscriber_endpoints.begin());
-    return {ErrorCode::Ok,
-            subscriber.endpoint_id,
-            topic.topic_id,
-            subscriber.data_socket_path,
-            subscriber.max_message_size,
-            subscriber.transport};
+    DiscoveryResult result{ErrorCode::Ok, topic.topic_id, topic.transport, topic.pool, {}};
+    result.subscribers.reserve(topic.subscriber_endpoints.size());
+    for (const std::uint64_t endpoint_id : topic.subscriber_endpoints) {
+        const SubscriberEndpoint& subscriber = subscribers_.at(endpoint_id);
+        result.subscribers.push_back(
+            {subscriber.endpoint_id, subscriber.data_socket_path, subscriber.max_message_size});
+    }
+    return result;
 }
 
 std::vector<NodeRecord> RegistryState::listNodes() const {
@@ -258,6 +271,7 @@ TopicRecord& RegistryState::findOrCreateTopic(const std::string& topic_name,
                                           transport,
                                           max_message_size,
                                           std::nullopt,
+                                          {},
                                           {}});
     topic_names_.emplace(topic_name, topic_id);
     return topics_.at(topic_id);

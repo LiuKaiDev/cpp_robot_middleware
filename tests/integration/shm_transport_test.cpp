@@ -142,7 +142,7 @@ std::set<std::string> projectSharedMemoryObjects() {
     for (std::filesystem::directory_iterator iterator{"/dev/shm", error}, end;
          !error && iterator != end; iterator.increment(error)) {
         const std::string name = iterator->path().filename().string();
-        if (name.rfind("mw_p3_", 0U) == 0U) {
+        if (name.rfind("mw_p3_", 0U) == 0U || name.rfind("mw_p4_", 0U) == 0U) {
             objects.insert(name);
         }
     }

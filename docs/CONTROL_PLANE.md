@@ -2,8 +2,9 @@
 
 ## Scope And Separation
 
-Phase 2 introduced registry-based discovery on one Linux host. Phase 3 extends endpoint metadata
-with a transport type while keeping control and payload responsibilities separate:
+Phase 2 introduced registry-based discovery on one Linux host. Phase 3 added transport metadata;
+Phase 4 adds publisher pool metadata and N-subscriber discovery while keeping control and payload
+responsibilities separate:
 
 ```text
 Context / Publisher / Subscriber / mwctl
@@ -13,7 +14,7 @@ Context / Publisher / Subscriber / mwctl
        mw_registryd control UDS
 
 Publisher --------------------------> Subscriber
-       UDS payload frame, or SHM locator/ACK UDS
+       UDS payload frame, or pool handle/release UDS
 ```
 
 `mw_registryd` stores identities and endpoint metadata. It does not proxy or copy user payloads.
@@ -41,13 +42,15 @@ The control plane uses `AF_UNIX`, `SOCK_STREAM`. Each frame begins with this log
 | Offset | Size | Field | Encoding |
 | --- | ---: | --- | --- |
 | 0 | 4 | magic (`0x4D574332`, `MWC2`) | big-endian |
-| 4 | 2 | protocol version (`2`) | big-endian |
+| 4 | 2 | protocol version (`3`) | big-endian |
 | 6 | 2 | opcode | big-endian |
 | 8 | 4 | request ID | big-endian |
 | 12 | 4 | payload size | big-endian |
 
-Version 2 adds endpoint transport metadata to advertise, subscribe, discovery, and topic-query
-payloads. The header is encoded field by field; a C++ structure is never sent as the wire ABI.
+Version 3 retains endpoint transport metadata and adds pool name/ID/segment-size/layout-version to
+SHM publisher advertisement, discovery, subscription response, and topic query. Resolve returns a
+counted list of all compatible subscriber endpoint IDs, socket paths, and size bounds. The header
+is encoded field by field; a C++ structure is never sent as the wire ABI.
 Payloads are bounded to 64 KiB before allocation. The server retains incomplete stream input until
 a complete header and declared payload are present. Bad magic, unsupported version, oversized
 payload, unknown opcode, malformed payload, and truncated connections cannot dispatch a partial
@@ -62,7 +65,7 @@ Phase 2 defines only the operations it uses:
 | `REGISTER_NODE` / `UNREGISTER_NODE` | Create or cleanly remove node identity and owned endpoints |
 | `ADVERTISE_TOPIC` / `UNADVERTISE_TOPIC` | Create or remove the one active publisher |
 | `SUBSCRIBE_TOPIC` / `UNSUBSCRIBE_TOPIC` | Create or remove a subscriber data endpoint |
-| `RESOLVE_ENDPOINT` | Return a compatible subscriber data socket to a publisher |
+| `RESOLVE_ENDPOINT` | Return compatible subscriber sockets and SHM pool metadata |
 | `LIST_NODES` | Return sorted live registry node records |
 | `LIST_TOPICS` | Return sorted live topic records |
 | `QUERY_TOPIC` | Return type, size, publisher count, and subscriber count |
@@ -83,8 +86,9 @@ maximum message size, at most one publisher endpoint, and zero or more subscribe
 topics are removed during clean endpoint teardown.
 
 Publisher and subscriber endpoints are distinct records with `endpoint_id`, `node_id`, and
-`topic_id`. A subscriber additionally records its Phase 1 `data_socket_path` and message-size
-bound. That pathname is discovery metadata, not a control transport.
+`topic_id`. A subscriber additionally records its data socket path and message-size bound. An SHM
+publisher records its pool descriptor. These values are discovery metadata, not control-plane
+payload data.
 
 ## Type Compatibility And Publisher Rule
 
@@ -93,9 +97,9 @@ The registry treats a pair as compatible only when topic name, `type_name`, `typ
 IDL or schema converter. A schema mismatch returns `TypeMismatch`; a UDS/SHM mismatch returns
 `TransportMismatch`; a second active publisher returns `DuplicatePublisher`.
 
-The state model retains N subscribers. The Phase 2 copied-payload data plane still establishes one
-Phase 1 connection selected by discovery; multi-subscriber payload fan-out belongs to the later
-message-lifecycle phases.
+The state model retains N subscribers. Phase 4 SHM resolution returns all of them and establishes
+one direct metadata UDS per subscriber. The copied Phase 1 UDS baseline continues selecting the
+first compatible endpoint.
 
 ## Discovery Flow
 
@@ -107,9 +111,9 @@ Subscriber binds its data socket
   -> SUBSCRIBE_TOPIC(data socket, type)
 Publisher REGISTER_NODE
   -> ADVERTISE_TOPIC(type)
-  -> RESOLVE_ENDPOINT
-  -> connect directly to subscriber data socket
-  -> send Phase 1 frames and payloads
+  -> RESOLVE_ENDPOINT (pool descriptor + N subscriber sockets)
+  -> connect directly to subscriber data sockets
+  -> send copied UDS data, or shared-pool handles
 ```
 
 For publisher-first startup, `ADVERTISE_TOPIC` succeeds immediately. The first `publish()` sends a
@@ -142,7 +146,7 @@ lists are sorted by name for deterministic output.
   compatible subscriber.
 - Registry sessions are intended to be called serially by an application; concurrent request
   multiplexing is not implemented.
-- Discovery chooses one registered subscriber for both current one-to-one payload paths.
+- SHM discovery returns all current subscribers; the copied UDS baseline remains one-to-one.
 - The registry never creates, maps, unlinks, or forwards shared-memory payload objects.
-- No memory pool, subscriber queue, backpressure, loaned sample, ROS2 adapter, or benchmark
-  framework is implemented.
+- No subscriber queue/backpressure, loaned sample/view, ROS2 adapter, or benchmark framework is
+  implemented.

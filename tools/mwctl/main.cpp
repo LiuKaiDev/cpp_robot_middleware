@@ -63,6 +63,12 @@ int run(int argc, char** argv) {
                   << "max_message_size: " << topic.max_message_size << '\n'
                   << "publishers: " << topic.publisher_count << '\n'
                   << "subscribers: " << topic.subscriber_count << '\n';
+        if (!topic.pool.shm_name.empty()) {
+            std::cout << "pool_name: " << topic.pool.shm_name << '\n'
+                      << "pool_id: " << topic.pool.pool_id << '\n'
+                      << "pool_segment_size: " << topic.pool.segment_size << '\n'
+                      << "pool_layout_version: " << topic.pool.layout_version << '\n';
+        }
         return 0;
     }
 

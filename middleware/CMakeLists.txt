@@ -3,6 +3,8 @@ add_library(
     src/context.cpp
     src/detail/control_protocol.cpp
     src/detail/frame_protocol.cpp
+    src/detail/memory_pool.cpp
+    src/detail/pool_protocol.cpp
     src/detail/registry_client.cpp
     src/detail/shared_memory.cpp
     src/detail/shm_protocol.cpp

@@ -21,8 +21,9 @@ int main(int argc, char** argv) {
 
         mw::Context context =
             options.registry_path.empty()
-                ? mw::Context{"ping_publisher"}
-                : mw::Context{"ping_publisher", mw::RegistryConfig{options.registry_path}};
+                ? mw::Context{options.node_name.empty() ? "ping_publisher" : options.node_name}
+                : mw::Context{options.node_name.empty() ? "ping_publisher" : options.node_name,
+                              mw::RegistryConfig{options.registry_path}};
         mw::PublisherConfig config;
         config.socket_path = options.socket_path;
         config.max_message_size = std::max(mw::kDefaultMaxMessageSize, options.payload_size);

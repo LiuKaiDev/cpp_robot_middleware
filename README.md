@@ -13,18 +13,19 @@ provides a focused environment for studying the IPC, resource-lifetime, backpres
 performance tradeoffs beneath a robotics communication API without implementing a full DDS or
 ROS2 RMW stack.
 
-## Current Status: Phase 3 - Shared Memory Data Plane V1
+## Current Status: Phase 4 - Memory Pool / Message Lifecycle
 
-Phase 3 adds a selectable POSIX shared-memory payload transport while preserving the copied Phase 1
-UDS transport as an independent baseline. The registry coordinates transport metadata and endpoint
-discovery; publisher-to-subscriber UDS carries a bounded SHM locator and ACK, while business payload
-bytes travel through the mapped shared-memory object.
+Phase 4 replaces per-message SHM objects with one preallocated publisher-lifetime pool. A publisher
+stores a payload once in a generation-protected chunk, sends the same logical handle to every
+discovered subscriber, and reuses the chunk after all release references reach zero. The copied
+Phase 1 UDS transport remains an independent baseline.
 
 ## Architecture Direction
 
 The architecture separates the `mw_registryd` UDS control plane from publisher-to-subscriber data
-transfer. Registry mode selects either copied UDS payload frames or the SHM V1 path. Direct mode
-retains the Phase 1 UDS baseline. The core library remains independent of ROS2.
+transfer. Registry protocol v3 distributes pool and N-subscriber endpoint metadata without owning
+payload memory. Direct mode retains the Phase 1 UDS baseline. The core library remains independent
+of ROS2.
 
 ## Implemented
 
@@ -41,10 +42,14 @@ retains the Phase 1 UDS baseline. The core library remains independent of ROS2.
 - `TransportType::UnixDomainSocket` and `TransportType::SharedMemory`
 - Registry transport compatibility checks and SHM discovery metadata
 - Move-only `SharedMemoryRegion` ownership for `shm_open`, `ftruncate`, `mmap`, and `munmap`
-- One POSIX SHM object per in-flight SHM message
-- Fixed-width, explicitly encoded SHM segment header
-- Fixed 248-byte UDS locator notification and fixed 16-byte cleanup ACK
-- Publisher-owned normal-path `shm_unlink` after subscriber validation and copy
+- One preallocated POSIX SHM pool per SHM publisher lifetime
+- Configurable 256 B, 4 KiB, 64 KiB, 1 MiB, and 4 MiB chunk classes
+- Checked pool/class/directory layout and aligned `ChunkHeader`
+- Mutex-protected publisher-owned per-class free lists
+- Generation-protected logical chunk handles and explicit lifecycle state
+- Publisher-owned reference decrement from exactly-once subscriber release frames
+- One shared SHM payload and N fixed handle notifications for multiple subscribers
+- Persistent subscriber pool mapping and publisher-owned normal-path `shm_unlink`
 - Fixed 24-byte frame header plus copied payload
 - Strict sequence and monotonic publish timestamp metadata
 - Empty, small, and large payload support up to the configured bound
@@ -108,7 +113,7 @@ Inspect the live registry with:
 Use `--transport uds` for the registry-discovered copied-payload baseline; omit `--registry` for
 direct UDS mode. See [docs/DATA_PLANE.md](docs/DATA_PLANE.md) for both payload paths,
 [docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md) for discovery, and
-[docs/UDS_BASELINE.md](docs/UDS_BASELINE.md) for the original baseline.
+[docs/MEMORY_POOL.md](docs/MEMORY_POOL.md) for the Phase 4 layout and lifecycle.
 
 ## Install
 
@@ -152,17 +157,15 @@ target_link_libraries(example PRIVATE mw::mw_core)
 
 ## Known Limitations
 
-- Discovery currently selects one subscriber for the Phase 1 one-to-one copied-payload path; later
-  phases add multi-subscriber payload lifecycle and fan-out.
-- SHM V1 dynamically creates and maps one object per in-flight message; no memory pool or reusable
-  chunk lifecycle exists.
-- Discovery still selects one subscriber. There is no multi-subscriber payload sharing, reference
-  counting, subscriber queue, backpressure policy, or loaned-sample API.
+- Registry-discovered SHM supports N subscribers; the copied UDS baseline remains one-to-one.
+- No subscriber ring buffer/queue or `DROP_NEWEST`, `DROP_OLDEST`, or blocking backpressure policy.
+- No public `LoanedSample`, public loan API, or read-only `SampleView`.
+- No `eventfd`, shared notification queue, or `SCM_RIGHTS` optimization.
 - No heartbeat, crash detection/recovery, ROS2 adapter, or benchmark framework exists.
 - Registry requests are synchronous and are not multiplexed across application threads.
 - The UDS path copies payload data through kernel socket buffers and is not zero-copy.
-- The SHM path copies the application buffer into SHM and copies the mapping into the owning
-  `ReceivedMessage`; it is not zero-copy.
-- Clean completion and normal disconnect paths unlink publisher-owned SHM objects. Crash-time
-  orphan reclamation after `SIGKILL` is deferred to Phase 6.
+- The SHM path copies the application buffer into one shared chunk and each subscriber copies that
+  chunk into owning `ReceivedMessage`; it is not zero-copy.
+- Clean completion unlinks publisher-owned pools. Crash-time orphan and refcount repair after
+  `SIGKILL` are deferred to Phase 6.
 - An unclean subscriber exit can leave a stale socket pathname that must be removed manually.

@@ -97,10 +97,13 @@ RegistryEndpoint readEndpoint(const std::vector<std::uint8_t>& body) {
     PayloadReader reader{body};
     RegistryEndpoint endpoint;
     if (!reader.readU64(endpoint.topic_id) || !reader.readU64(endpoint.endpoint_id) ||
-        !reader.empty()) {
+        !reader.readString(endpoint.pool.shm_name) || !reader.readU64(endpoint.pool.pool_id) ||
+        !reader.readU64(endpoint.pool.segment_size) ||
+        !reader.readU16(endpoint.pool.layout_version) || !reader.empty()) {
         throw MiddlewareError(ErrorCode::InvalidControlMessage,
                               "registry response has an invalid endpoint payload");
     }
+    endpoint.pool.topic_id = endpoint.topic_id;
     return endpoint;
 }
 
@@ -137,7 +140,8 @@ void RegistryClient::unregisterNode(std::uint64_t node_id) {
 RegistryEndpoint RegistryClient::advertise(std::uint64_t node_id, const std::string& topic_name,
                                            const std::string& type_name,
                                            const std::string& type_hash,
-                                           std::size_t max_message_size, TransportType transport) {
+                                           std::size_t max_message_size, TransportType transport,
+                                           const PoolDescriptor& pool) {
     PayloadWriter writer;
     writer.writeU64(node_id);
     writer.writeString(topic_name);
@@ -145,6 +149,10 @@ RegistryEndpoint RegistryClient::advertise(std::uint64_t node_id, const std::str
     writer.writeString(type_hash);
     writer.writeU64(max_message_size);
     writer.writeU16(static_cast<std::uint16_t>(transport));
+    writer.writeString(pool.shm_name);
+    writer.writeU64(pool.pool_id);
+    writer.writeU64(pool.segment_size);
+    writer.writeU16(pool.layout_version);
     return readEndpoint(request(Opcode::AdvertiseTopic, writer.data(), request_timeout_));
 }
 
@@ -188,16 +196,33 @@ RegistryDiscovery RegistryClient::resolve(std::uint64_t node_id,
         request(Opcode::ResolveEndpoint, writer.data(), std::chrono::milliseconds{-1});
     PayloadReader reader{body};
     RegistryDiscovery discovery;
-    std::uint64_t max_message_size = 0;
     std::uint16_t transport = 0;
-    if (!reader.readU64(discovery.subscriber_endpoint_id) || !reader.readU64(discovery.topic_id) ||
-        !reader.readString(discovery.data_socket_path) || !reader.readU64(max_message_size) ||
-        !reader.readU16(transport) || !reader.empty()) {
+    std::uint32_t count = 0;
+    if (!reader.readU64(discovery.topic_id) || !reader.readU16(transport) ||
+        !reader.readString(discovery.pool.shm_name) || !reader.readU64(discovery.pool.pool_id) ||
+        !reader.readU64(discovery.pool.segment_size) ||
+        !reader.readU16(discovery.pool.layout_version) || !reader.readU32(count)) {
         throw MiddlewareError(ErrorCode::InvalidControlMessage,
                               "registry response has invalid discovery data");
     }
-    discovery.max_message_size = checkedSize(max_message_size);
     discovery.transport = static_cast<TransportType>(transport);
+    discovery.pool.topic_id = discovery.topic_id;
+    discovery.subscribers.reserve(count);
+    for (std::uint32_t index = 0; index < count; ++index) {
+        RegistrySubscriber subscriber;
+        std::uint64_t max_message_size = 0;
+        if (!reader.readU64(subscriber.endpoint_id) ||
+            !reader.readString(subscriber.data_socket_path) || !reader.readU64(max_message_size)) {
+            throw MiddlewareError(ErrorCode::InvalidControlMessage,
+                                  "registry response has invalid subscriber discovery data");
+        }
+        subscriber.max_message_size = checkedSize(max_message_size);
+        discovery.subscribers.push_back(std::move(subscriber));
+    }
+    if (discovery.subscribers.empty() || !reader.empty()) {
+        throw MiddlewareError(ErrorCode::InvalidControlMessage,
+                              "registry response has no subscriber discovery data");
+    }
     return discovery;
 }
 
@@ -258,13 +283,17 @@ RegistryTopicInfo RegistryClient::queryTopic(const std::string& topic_name) {
     if (!reader.readU64(topic.topic_id) || !reader.readString(topic.topic_name) ||
         !reader.readString(topic.type_name) || !reader.readString(topic.type_hash) ||
         !reader.readU16(transport) || !reader.readU64(max_message_size) ||
-        !reader.readU64(publisher_count) || !reader.readU64(subscriber_count) || !reader.empty()) {
+        !reader.readU64(publisher_count) || !reader.readU64(subscriber_count) ||
+        !reader.readString(topic.pool.shm_name) || !reader.readU64(topic.pool.pool_id) ||
+        !reader.readU64(topic.pool.segment_size) || !reader.readU16(topic.pool.layout_version) ||
+        !reader.empty()) {
         throw MiddlewareError(ErrorCode::InvalidControlMessage, "invalid topic info response");
     }
     topic.max_message_size = checkedSize(max_message_size);
     topic.transport = static_cast<TransportType>(transport);
     topic.publisher_count = checkedSize(publisher_count);
     topic.subscriber_count = checkedSize(subscriber_count);
+    topic.pool.topic_id = topic.topic_id;
     return topic;
 }
 
@@ -344,9 +373,10 @@ RegistrySession::~RegistrySession() {
 }
 
 RegistryEndpoint RegistrySession::advertise(const std::string& topic_name,
-                                            const PublisherConfig& config) {
+                                            const PublisherConfig& config,
+                                            const PoolDescriptor& pool) {
     return client_.advertise(node_id_, topic_name, config.type_name, config.type_hash,
-                             config.max_message_size, config.transport);
+                             config.max_message_size, config.transport, pool);
 }
 
 void RegistrySession::unadvertise(std::uint64_t endpoint_id) noexcept {

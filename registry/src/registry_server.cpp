@@ -44,16 +44,27 @@ detail::PayloadWriter endpointBody(const EndpointResult& result) {
     detail::PayloadWriter writer;
     writer.writeU64(result.topic_id);
     writer.writeU64(result.endpoint_id);
+    writer.writeString(result.pool.shm_name);
+    writer.writeU64(result.pool.pool_id);
+    writer.writeU64(result.pool.segment_size);
+    writer.writeU16(result.pool.layout_version);
     return writer;
 }
 
 detail::PayloadWriter discoveryBody(const DiscoveryResult& result) {
     detail::PayloadWriter writer;
-    writer.writeU64(result.subscriber_endpoint_id);
     writer.writeU64(result.topic_id);
-    writer.writeString(result.data_socket_path);
-    writer.writeU64(result.max_message_size);
     writer.writeU16(static_cast<std::uint16_t>(result.transport));
+    writer.writeString(result.pool.shm_name);
+    writer.writeU64(result.pool.pool_id);
+    writer.writeU64(result.pool.segment_size);
+    writer.writeU16(result.pool.layout_version);
+    writer.writeU32(static_cast<std::uint32_t>(result.subscribers.size()));
+    for (const DiscoveredSubscriber& subscriber : result.subscribers) {
+        writer.writeU64(subscriber.endpoint_id);
+        writer.writeString(subscriber.data_socket_path);
+        writer.writeU64(subscriber.max_message_size);
+    }
     return writer;
 }
 
@@ -262,9 +273,12 @@ struct RegistryServer::Impl {
             std::string topic_name;
             std::string type_name;
             std::string type_hash;
+            SharedPoolMetadata pool;
             if (!reader.readU64(node_id) || !reader.readString(topic_name) ||
                 !reader.readString(type_name) || !reader.readString(type_hash) ||
                 !reader.readU64(max_message_size) || !reader.readU16(transport) ||
+                !reader.readString(pool.shm_name) || !reader.readU64(pool.pool_id) ||
+                !reader.readU64(pool.segment_size) || !reader.readU16(pool.layout_version) ||
                 !reader.empty()) {
                 queueResponse(fd, header.request_id, ErrorCode::InvalidControlMessage, {});
                 return;
@@ -273,9 +287,10 @@ struct RegistryServer::Impl {
                 queueResponse(fd, header.request_id, ErrorCode::InvalidArgument, {});
                 return;
             }
-            const EndpointResult result = state.advertise(
-                client.connection_id, node_id, topic_name, type_name, type_hash,
-                static_cast<std::size_t>(max_message_size), static_cast<TransportType>(transport));
+            const EndpointResult result =
+                state.advertise(client.connection_id, node_id, topic_name, type_name, type_hash,
+                                static_cast<std::size_t>(max_message_size),
+                                static_cast<TransportType>(transport), std::move(pool));
             const auto body = endpointBody(result);
             queueResponse(fd, header.request_id, result.error, body.data());
             return;
@@ -401,6 +416,10 @@ struct RegistryServer::Impl {
             body.writeU64(topic->max_message_size);
             body.writeU64(topic->publisher_endpoint.has_value() ? 1U : 0U);
             body.writeU64(topic->subscriber_endpoints.size());
+            body.writeString(topic->pool.shm_name);
+            body.writeU64(topic->pool.pool_id);
+            body.writeU64(topic->pool.segment_size);
+            body.writeU16(topic->pool.layout_version);
             queueResponse(fd, header.request_id, ErrorCode::Ok, body.data());
             return;
         }

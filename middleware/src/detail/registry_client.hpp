@@ -3,6 +3,7 @@
 #include <mw/config.hpp>
 
 #include "detail/control_protocol.hpp"
+#include "detail/pool_protocol.hpp"
 #include "detail/unique_fd.hpp"
 
 #include <chrono>
@@ -16,14 +17,20 @@ namespace mw::detail {
 struct RegistryEndpoint {
     std::uint64_t topic_id{0};
     std::uint64_t endpoint_id{0};
+    PoolDescriptor pool;
+};
+
+struct RegistrySubscriber {
+    std::uint64_t endpoint_id{0};
+    std::string data_socket_path;
+    std::size_t max_message_size{0};
 };
 
 struct RegistryDiscovery {
-    std::uint64_t subscriber_endpoint_id{0};
     std::uint64_t topic_id{0};
-    std::string data_socket_path;
-    std::size_t max_message_size{0};
     TransportType transport{TransportType::UnixDomainSocket};
+    PoolDescriptor pool;
+    std::vector<RegistrySubscriber> subscribers;
 };
 
 struct RegistryNodeInfo {
@@ -40,6 +47,7 @@ struct RegistryTopicInfo {
     std::size_t max_message_size{0};
     std::size_t publisher_count{0};
     std::size_t subscriber_count{0};
+    PoolDescriptor pool;
 };
 
 class RegistryClient {
@@ -56,7 +64,8 @@ class RegistryClient {
 
     RegistryEndpoint advertise(std::uint64_t node_id, const std::string& topic_name,
                                const std::string& type_name, const std::string& type_hash,
-                               std::size_t max_message_size, TransportType transport);
+                               std::size_t max_message_size, TransportType transport,
+                               const PoolDescriptor& pool = {});
     void unadvertise(std::uint64_t node_id, std::uint64_t endpoint_id);
 
     RegistryEndpoint subscribe(std::uint64_t node_id, const std::string& topic_name,
@@ -89,7 +98,8 @@ class RegistrySession {
     RegistrySession(const RegistrySession&) = delete;
     RegistrySession& operator=(const RegistrySession&) = delete;
 
-    RegistryEndpoint advertise(const std::string& topic_name, const PublisherConfig& config);
+    RegistryEndpoint advertise(const std::string& topic_name, const PublisherConfig& config,
+                               const PoolDescriptor& pool = {});
     void unadvertise(std::uint64_t endpoint_id) noexcept;
     RegistryEndpoint subscribe(const std::string& topic_name, const SubscriberConfig& config);
     void unsubscribe(std::uint64_t endpoint_id) noexcept;

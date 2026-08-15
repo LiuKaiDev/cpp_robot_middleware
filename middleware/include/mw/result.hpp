@@ -32,6 +32,9 @@ enum class ErrorCode : std::uint16_t {
     SharedMemoryNotFound = 21,
     InvalidSharedMemory = 22,
     CleanupFailed = 23,
+    PoolExhausted = 24,
+    InvalidChunkHandle = 25,
+    DuplicateRelease = 26,
 };
 
 const char* errorMessage(ErrorCode error) noexcept;

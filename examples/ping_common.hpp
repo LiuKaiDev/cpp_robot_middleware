@@ -14,6 +14,7 @@
 namespace mw::examples {
 
 struct PingOptions {
+    std::string node_name;
     std::string registry_path;
     std::string socket_path{"/tmp/cpp_robot_middleware_ping.sock"};
     std::string topic{"/ping"};
@@ -45,6 +46,8 @@ inline PingOptions parseOptions(int argc, char** argv) {
         const std::string_view value{argv[index + 1]};
         if (name == "--registry") {
             options.registry_path = value;
+        } else if (name == "--node-name") {
+            options.node_name = value;
         } else if (name == "--socket") {
             options.socket_path = value;
         } else if (name == "--topic") {
