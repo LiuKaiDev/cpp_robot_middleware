@@ -35,6 +35,10 @@ enum class ErrorCode : std::uint16_t {
     PoolExhausted = 24,
     InvalidChunkHandle = 25,
     DuplicateRelease = 26,
+    QueueFull = 27,
+    QueueTimeout = 28,
+    QueueClosed = 29,
+    UnsupportedTransport = 30,
 };
 
 const char* errorMessage(ErrorCode error) noexcept;
@@ -53,6 +57,10 @@ struct PublishResult {
     ErrorCode error{ErrorCode::Ok};
     std::uint64_t sequence{0};
     std::size_t payload_size{0};
+    std::uint32_t enqueued{0};
+    std::uint32_t dropped_newest{0};
+    std::uint32_t dropped_oldest{0};
+    std::uint32_t block_timeouts{0};
 
     bool ok() const noexcept { return error == ErrorCode::Ok; }
     explicit operator bool() const noexcept { return ok(); }

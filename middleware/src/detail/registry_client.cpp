@@ -168,7 +168,8 @@ RegistryEndpoint RegistryClient::subscribe(std::uint64_t node_id, const std::str
                                            const std::string& type_hash,
                                            std::size_t max_message_size,
                                            const std::string& data_socket_path,
-                                           TransportType transport) {
+                                           TransportType transport,
+                                           const QueueDescriptor& queue) {
     PayloadWriter writer;
     writer.writeU64(node_id);
     writer.writeString(topic_name);
@@ -177,6 +178,13 @@ RegistryEndpoint RegistryClient::subscribe(std::uint64_t node_id, const std::str
     writer.writeU64(max_message_size);
     writer.writeString(data_socket_path);
     writer.writeU16(static_cast<std::uint16_t>(transport));
+    writer.writeString(queue.shm_name);
+    writer.writeU64(queue.queue_id);
+    writer.writeU64(queue.segment_size);
+    writer.writeU32(queue.capacity);
+    writer.writeU16(queue.layout_version);
+    writer.writeU16(static_cast<std::uint16_t>(queue.overflow_policy));
+    writer.writeU64(queue.block_timeout_ms);
     return readEndpoint(request(Opcode::SubscribeTopic, writer.data(), request_timeout_));
 }
 
@@ -212,10 +220,22 @@ RegistryDiscovery RegistryClient::resolve(std::uint64_t node_id,
         RegistrySubscriber subscriber;
         std::uint64_t max_message_size = 0;
         if (!reader.readU64(subscriber.endpoint_id) ||
-            !reader.readString(subscriber.data_socket_path) || !reader.readU64(max_message_size)) {
+            !reader.readString(subscriber.data_socket_path) || !reader.readU64(max_message_size) ||
+            !reader.readString(subscriber.queue.shm_name) ||
+            !reader.readU64(subscriber.queue.queue_id) ||
+            !reader.readU64(subscriber.queue.segment_size) ||
+            !reader.readU32(subscriber.queue.capacity) ||
+            !reader.readU16(subscriber.queue.layout_version)) {
             throw MiddlewareError(ErrorCode::InvalidControlMessage,
                                   "registry response has invalid subscriber discovery data");
         }
+        std::uint16_t overflow_policy = 0;
+        if (!reader.readU16(overflow_policy) ||
+            !reader.readU64(subscriber.queue.block_timeout_ms)) {
+            throw MiddlewareError(ErrorCode::InvalidControlMessage,
+                                  "registry response has invalid subscriber queue data");
+        }
+        subscriber.queue.overflow_policy = static_cast<OverflowPolicy>(overflow_policy);
         subscriber.max_message_size = checkedSize(max_message_size);
         discovery.subscribers.push_back(std::move(subscriber));
     }
@@ -387,9 +407,10 @@ void RegistrySession::unadvertise(std::uint64_t endpoint_id) noexcept {
 }
 
 RegistryEndpoint RegistrySession::subscribe(const std::string& topic_name,
-                                            const SubscriberConfig& config) {
+                                            const SubscriberConfig& config,
+                                            const QueueDescriptor& queue) {
     return client_.subscribe(node_id_, topic_name, config.type_name, config.type_hash,
-                             config.max_message_size, config.socket_path, config.transport);
+                             config.max_message_size, config.socket_path, config.transport, queue);
 }
 
 void RegistrySession::unsubscribe(std::uint64_t endpoint_id) noexcept {

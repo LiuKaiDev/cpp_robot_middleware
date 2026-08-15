@@ -108,6 +108,11 @@ struct ReleaseResult {
     bool became_released{false};
 };
 
+struct WritableChunkResult {
+    ErrorCode error{ErrorCode::Ok};
+    std::uint8_t* payload{nullptr};
+};
+
 class MemoryPool {
   public:
     static std::size_t requiredSegmentSize(const MemoryPoolConfig& config);
@@ -120,9 +125,14 @@ class MemoryPool {
     MemoryPool& operator=(const MemoryPool&) = delete;
 
     AllocationResult allocate(std::size_t payload_size);
+    WritableChunkResult writablePayload(const ChunkHandle& handle) noexcept;
     ErrorCode writeAndPublish(const ChunkHandle& handle, const void* data, std::size_t payload_size,
                               std::uint64_t sequence, std::uint64_t publish_timestamp_ns,
                               std::uint32_t subscriber_references);
+    ErrorCode publishLoaned(const ChunkHandle& handle, std::size_t payload_size,
+                            std::uint64_t sequence, std::uint64_t publish_timestamp_ns,
+                            std::uint32_t initial_references);
+    ErrorCode addReference(const ChunkHandle& handle);
     ReleaseResult release(const ChunkHandle& handle);
     ErrorCode reclaim(const ChunkHandle& handle);
     ErrorCode cancel(const ChunkHandle& handle);
@@ -139,6 +149,9 @@ class MemoryPool {
     ChunkHeader* chunkHeader(std::uint32_t chunk_index) noexcept;
     const ChunkHeader* chunkHeader(std::uint32_t chunk_index) const noexcept;
     bool handleMatches(const ChunkHandle& handle, const ChunkHeader& header) const noexcept;
+    ErrorCode publishLocked(const ChunkHandle& handle, std::size_t payload_size,
+                            std::uint64_t sequence, std::uint64_t publish_timestamp_ns,
+                            std::uint32_t initial_references) noexcept;
 
     PoolDescriptor descriptor_;
     SharedMemoryRegion region_;

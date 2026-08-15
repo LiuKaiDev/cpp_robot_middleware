@@ -4,6 +4,7 @@
 
 #include "detail/control_protocol.hpp"
 #include "detail/pool_protocol.hpp"
+#include "detail/queue_protocol.hpp"
 #include "detail/unique_fd.hpp"
 
 #include <chrono>
@@ -24,6 +25,7 @@ struct RegistrySubscriber {
     std::uint64_t endpoint_id{0};
     std::string data_socket_path;
     std::size_t max_message_size{0};
+    QueueDescriptor queue;
 };
 
 struct RegistryDiscovery {
@@ -71,7 +73,7 @@ class RegistryClient {
     RegistryEndpoint subscribe(std::uint64_t node_id, const std::string& topic_name,
                                const std::string& type_name, const std::string& type_hash,
                                std::size_t max_message_size, const std::string& data_socket_path,
-                               TransportType transport);
+                               TransportType transport, const QueueDescriptor& queue = {});
     void unsubscribe(std::uint64_t node_id, std::uint64_t endpoint_id);
 
     RegistryDiscovery resolve(std::uint64_t node_id, std::uint64_t publisher_endpoint_id);
@@ -101,7 +103,8 @@ class RegistrySession {
     RegistryEndpoint advertise(const std::string& topic_name, const PublisherConfig& config,
                                const PoolDescriptor& pool = {});
     void unadvertise(std::uint64_t endpoint_id) noexcept;
-    RegistryEndpoint subscribe(const std::string& topic_name, const SubscriberConfig& config);
+    RegistryEndpoint subscribe(const std::string& topic_name, const SubscriberConfig& config,
+                               const QueueDescriptor& queue = {});
     void unsubscribe(std::uint64_t endpoint_id) noexcept;
     RegistryDiscovery resolve(std::uint64_t publisher_endpoint_id);
 

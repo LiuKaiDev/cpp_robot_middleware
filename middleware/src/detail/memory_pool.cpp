@@ -286,10 +286,69 @@ AllocationResult MemoryPool::allocate(std::size_t payload_size) {
             header->capacity};
 }
 
+WritableChunkResult MemoryPool::writablePayload(const ChunkHandle& handle) noexcept {
+    std::lock_guard<std::mutex> lock{mutex_};
+    if (handle.chunk_index >= directory_.size()) {
+        return {ErrorCode::InvalidChunkHandle, nullptr};
+    }
+    ChunkHeader* header = chunkHeader(handle.chunk_index);
+    if (!handleMatches(handle, *header)) {
+        return {ErrorCode::InvalidChunkHandle, nullptr};
+    }
+    if (header->state.load(std::memory_order_acquire) !=
+        static_cast<std::uint32_t>(ChunkState::Loaned)) {
+        return {ErrorCode::InvalidState, nullptr};
+    }
+    auto* bytes = static_cast<std::uint8_t*>(region_.data());
+    return {ErrorCode::Ok, bytes + handle.payload_offset};
+}
+
 ErrorCode MemoryPool::writeAndPublish(const ChunkHandle& handle, const void* data,
                                       std::size_t payload_size, std::uint64_t sequence,
                                       std::uint64_t publish_timestamp_ns,
                                       std::uint32_t subscriber_references) {
+    std::lock_guard<std::mutex> lock{mutex_};
+    if (payload_size != 0U && data == nullptr) {
+        return ErrorCode::InvalidArgument;
+    }
+    const ErrorCode validation = publishLocked(handle, payload_size, sequence,
+                                               publish_timestamp_ns, subscriber_references);
+    if (validation != ErrorCode::Ok) {
+        return validation;
+    }
+    if (payload_size != 0U) {
+        auto* destination = static_cast<std::uint8_t*>(region_.data()) + handle.payload_offset;
+        std::memcpy(destination, data, payload_size);
+    }
+    ChunkHeader* header = chunkHeader(handle.chunk_index);
+    header->sequence = sequence;
+    header->publish_timestamp_ns = publish_timestamp_ns;
+    header->ref_count.store(subscriber_references, std::memory_order_relaxed);
+    header->state.store(static_cast<std::uint32_t>(ChunkState::Published),
+                        std::memory_order_release);
+    ++instrumentation_.payload_copies;
+    return ErrorCode::Ok;
+}
+
+ErrorCode MemoryPool::publishLoaned(const ChunkHandle& handle, std::size_t payload_size,
+                                    std::uint64_t sequence, std::uint64_t publish_timestamp_ns,
+                                    std::uint32_t initial_references) {
+    std::lock_guard<std::mutex> lock{mutex_};
+    const ErrorCode validation = publishLocked(handle, payload_size, sequence,
+                                               publish_timestamp_ns, initial_references);
+    if (validation != ErrorCode::Ok) {
+        return validation;
+    }
+    ChunkHeader* header = chunkHeader(handle.chunk_index);
+    header->sequence = sequence;
+    header->publish_timestamp_ns = publish_timestamp_ns;
+    header->ref_count.store(initial_references, std::memory_order_relaxed);
+    header->state.store(static_cast<std::uint32_t>(ChunkState::Published),
+                        std::memory_order_release);
+    return ErrorCode::Ok;
+}
+
+ErrorCode MemoryPool::addReference(const ChunkHandle& handle) {
     std::lock_guard<std::mutex> lock{mutex_};
     if (handle.chunk_index >= directory_.size()) {
         return ErrorCode::InvalidChunkHandle;
@@ -299,23 +358,14 @@ ErrorCode MemoryPool::writeAndPublish(const ChunkHandle& handle, const void* dat
         return ErrorCode::InvalidChunkHandle;
     }
     if (header->state.load(std::memory_order_acquire) !=
-        static_cast<std::uint32_t>(ChunkState::Loaned)) {
+        static_cast<std::uint32_t>(ChunkState::Published)) {
         return ErrorCode::InvalidState;
     }
-    if (payload_size != header->payload_size || payload_size > header->capacity ||
-        (payload_size != 0U && data == nullptr) || sequence == 0U || subscriber_references == 0U) {
-        return ErrorCode::InvalidArgument;
+    const std::uint32_t references = header->ref_count.load(std::memory_order_relaxed);
+    if (references == 0U || references == std::numeric_limits<std::uint32_t>::max()) {
+        return ErrorCode::InvalidState;
     }
-    if (payload_size != 0U) {
-        auto* destination = static_cast<std::uint8_t*>(region_.data()) + handle.payload_offset;
-        std::memcpy(destination, data, payload_size);
-    }
-    header->sequence = sequence;
-    header->publish_timestamp_ns = publish_timestamp_ns;
-    header->ref_count.store(subscriber_references, std::memory_order_relaxed);
-    header->state.store(static_cast<std::uint32_t>(ChunkState::Published),
-                        std::memory_order_release);
-    ++instrumentation_.payload_copies;
+    header->ref_count.store(references + 1U, std::memory_order_relaxed);
     return ErrorCode::Ok;
 }
 
@@ -425,6 +475,27 @@ bool MemoryPool::handleMatches(const ChunkHandle& handle,
                                const ChunkHeader& header) const noexcept {
     return handle.pool_id == descriptor_.pool_id && handle.generation == header.generation &&
            handle.payload_offset == directory_[handle.chunk_index].payload_offset;
+}
+
+ErrorCode MemoryPool::publishLocked(const ChunkHandle& handle, std::size_t payload_size,
+                                    std::uint64_t sequence, std::uint64_t,
+                                    std::uint32_t initial_references) noexcept {
+    if (handle.chunk_index >= directory_.size()) {
+        return ErrorCode::InvalidChunkHandle;
+    }
+    ChunkHeader* header = chunkHeader(handle.chunk_index);
+    if (!handleMatches(handle, *header)) {
+        return ErrorCode::InvalidChunkHandle;
+    }
+    if (header->state.load(std::memory_order_acquire) !=
+        static_cast<std::uint32_t>(ChunkState::Loaned)) {
+        return ErrorCode::InvalidState;
+    }
+    if (payload_size != header->payload_size || payload_size > header->capacity || sequence == 0U ||
+        initial_references == 0U) {
+        return ErrorCode::InvalidArgument;
+    }
+    return ErrorCode::Ok;
 }
 
 std::unique_ptr<MemoryPoolView> MemoryPoolView::open(const PoolDescriptor& descriptor,

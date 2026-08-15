@@ -22,6 +22,22 @@ bool validPoolMetadata(TransportType transport, const SharedPoolMetadata& pool) 
            pool.segment_size != 0U && pool.layout_version == 1U;
 }
 
+bool validQueueMetadata(TransportType transport, const SharedQueueMetadata& queue) noexcept {
+    if (transport == TransportType::UnixDomainSocket) {
+        return queue.shm_name.empty() && queue.queue_id == 0U && queue.segment_size == 0U &&
+               queue.capacity == 0U && queue.layout_version == 0U &&
+               queue.overflow_policy == 0U && queue.block_timeout_ms == 0U;
+    }
+    const bool valid_policy =
+        queue.overflow_policy >= static_cast<std::uint16_t>(OverflowPolicy::DropNewest) &&
+        queue.overflow_policy <= static_cast<std::uint16_t>(OverflowPolicy::BlockWithTimeout);
+    return queue.shm_name.size() >= 2U && queue.shm_name.size() <= 192U &&
+           queue.shm_name.front() == '/' && queue.shm_name.find('\0') == std::string::npos &&
+           queue.shm_name.find('/', 1U) == std::string::npos && queue.queue_id != 0U &&
+           queue.segment_size != 0U && queue.capacity != 0U && queue.capacity <= 65536U &&
+           queue.layout_version == 1U && valid_policy && queue.block_timeout_ms != 0U;
+}
+
 } // namespace
 
 IdResult RegistryState::registerNode(ConnectionId connection, const std::string& node_name) {
@@ -121,14 +137,14 @@ EndpointResult RegistryState::subscribe(ConnectionId connection, std::uint64_t n
                                         const std::string& topic_name, const std::string& type_name,
                                         const std::string& type_hash, std::size_t max_message_size,
                                         const std::string& data_socket_path,
-                                        TransportType transport) {
+                                        TransportType transport, SharedQueueMetadata queue) {
     NodeRecord* node = ownedNode(connection, node_id);
     if (node == nullptr) {
         return {ErrorCode::NotRegistered, 0, 0, {}};
     }
     if (topic_name.empty() || type_name.empty() || type_hash.empty() || data_socket_path.empty() ||
         max_message_size > std::numeric_limits<std::uint32_t>::max() ||
-        !validTransport(transport)) {
+        !validTransport(transport) || !validQueueMetadata(transport, queue)) {
         return {ErrorCode::InvalidArgument, 0, 0, {}};
     }
 
@@ -148,7 +164,7 @@ EndpointResult RegistryState::subscribe(ConnectionId connection, std::uint64_t n
     const std::uint64_t endpoint_id = next_endpoint_id_++;
     subscribers_.emplace(endpoint_id,
                          SubscriberEndpoint{endpoint_id, node_id, topic.topic_id, data_socket_path,
-                                            max_message_size, transport});
+                                            max_message_size, transport, std::move(queue)});
     topic.subscriber_endpoints.insert(endpoint_id);
     topic.max_message_size = std::min(topic.max_message_size, max_message_size);
     node->subscriber_endpoints.insert(endpoint_id);
@@ -190,8 +206,8 @@ DiscoveryResult RegistryState::resolve(ConnectionId connection, std::uint64_t no
     result.subscribers.reserve(topic.subscriber_endpoints.size());
     for (const std::uint64_t endpoint_id : topic.subscriber_endpoints) {
         const SubscriberEndpoint& subscriber = subscribers_.at(endpoint_id);
-        result.subscribers.push_back(
-            {subscriber.endpoint_id, subscriber.data_socket_path, subscriber.max_message_size});
+        result.subscribers.push_back({subscriber.endpoint_id, subscriber.data_socket_path,
+                                      subscriber.max_message_size, subscriber.queue});
     }
     return result;
 }

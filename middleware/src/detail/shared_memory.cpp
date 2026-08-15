@@ -79,6 +79,25 @@ SharedMemoryRegion SharedMemoryRegion::openReadOnly(const std::string& name,
     return SharedMemoryRegion{std::move(fd), address, expected_size, name, false};
 }
 
+SharedMemoryRegion SharedMemoryRegion::openReadWrite(const std::string& name,
+                                                     std::size_t expected_size) {
+    validateArguments(name, expected_size);
+    UniqueFd fd = openObject(name, O_RDWR);
+    struct stat status {};
+    if (::fstat(fd.get(), &status) != 0) {
+        throw std::system_error(errno, std::generic_category(), "fstat(" + name + ")");
+    }
+    if (status.st_size < 0 || static_cast<std::uintmax_t>(status.st_size) != expected_size) {
+        throw std::system_error(EINVAL, std::generic_category(),
+                                "shared memory object has unexpected size");
+    }
+    void* address = ::mmap(nullptr, expected_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd.get(), 0);
+    if (address == MAP_FAILED) {
+        throw std::system_error(errno, std::generic_category(), "mmap(" + name + ")");
+    }
+    return SharedMemoryRegion{std::move(fd), address, expected_size, name, false};
+}
+
 SharedMemoryRegion::SharedMemoryRegion(UniqueFd fd, void* address, std::size_t size,
                                        std::string name, bool owns_name) noexcept
     : fd_(std::move(fd)), address_(address), size_(size), name_(std::move(name)),

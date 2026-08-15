@@ -16,7 +16,7 @@ function(mw_add_gtest target source)
     target_include_directories(${target} PRIVATE "${PROJECT_SOURCE_DIR}/middleware/src")
     target_link_libraries(${target} PRIVATE mw::mw_core GTest::gtest_main ${ARGN})
 
-    gtest_discover_tests(${target} PROPERTIES TIMEOUT 20)
+    gtest_discover_tests(${target} PROPERTIES TIMEOUT 20 RESOURCE_LOCK mw_project_ipc)
 endfunction()
 
 include(GoogleTest)
@@ -30,6 +30,7 @@ mw_add_gtest(mw_shared_memory_test unit/shared_memory_test.cpp)
 mw_add_gtest(mw_shm_protocol_test unit/shm_protocol_test.cpp)
 mw_add_gtest(mw_pool_protocol_test unit/pool_protocol_test.cpp)
 mw_add_gtest(mw_memory_pool_test unit/memory_pool_test.cpp)
+mw_add_gtest(mw_subscriber_queue_test unit/subscriber_queue_test.cpp Threads::Threads)
 mw_add_gtest(mw_pubsub_test integration/pubsub_test.cpp Threads::Threads)
 mw_add_gtest(mw_process_pubsub_test integration/process_pubsub_test.cpp)
 mw_add_gtest(mw_registry_discovery_test integration/registry_discovery_test.cpp
@@ -70,6 +71,8 @@ add_dependencies(
     mw_ping_publisher
     mw_ping_subscriber
 )
+mw_add_gtest(mw_phase5_loan_queue_test integration/phase5_loan_queue_test.cpp
+             mw_registry_support Threads::Threads)
 add_dependencies(
     mw_registry_discovery_test
     mw_registryd

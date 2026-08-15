@@ -2,25 +2,22 @@
 
 ## Scope
 
-Phase 4 replaces the Phase 3 one-object-per-message SHM path with one preallocated pool for the
-lifetime of each SHM publisher. It implements bounded size classes, reusable chunks, lifecycle
-state, reference counting, and one-publisher-to-N-subscriber payload sharing. Notification and
-release metadata still use one UDS connection per subscriber.
-
-This phase does not add a subscriber queue, ring buffer, backpressure policy, public loaned sample,
-or sample view.
+Phase 4 replaced the Phase 3 one-object-per-message SHM path with one preallocated pool for the
+lifetime of each SHM publisher. Phase 5 retains this layout and adds subscriber queues plus public
+loan/view APIs around the same chunk lifecycle. See [QUEUES_AND_LOANING.md](QUEUES_AND_LOANING.md)
+for the enqueue/reference protocol and public RAII lifetimes.
 
 ## Pool Lifetime And Ownership
 
-An SHM publisher generates a `/mw_p4_<pid>_<pool-id>` name, computes the complete checked layout,
+An SHM publisher generates a `/mw_p5_<pid>_<pool-id>` name, computes the complete checked layout,
 advertises its descriptor through the registry, and creates the POSIX object with the existing
 move-only `SharedMemoryRegion`. Creation performs one `shm_open`, one `ftruncate`, and one writable
 `mmap`. The pool remains mapped until publisher destruction.
 
 The publisher owns the SHM name, writable mapping, free lists, chunk state changes, reference-count
 changes, reclamation, and final `shm_unlink`. A subscriber receives the name, pool ID, segment size,
-layout version, and topic ID through discovery/notification metadata. It opens one read-only,
-non-name-owning mapping on its first notification and retains it for its endpoint lifetime.
+layout version, and topic ID through discovery/wake metadata. It opens one read-only,
+non-name-owning mapping on its first wake and retains it for its endpoint lifetime.
 
 Normal publisher destruction closes data connections, unmaps, and unlinks the pool. Normal
 subscriber destruction unmaps and unsubscribes. An unlink removes the name without invalidating an
@@ -105,9 +102,10 @@ The normal state machine is:
 FREE -> LOANED -> PUBLISHED -> RELEASED -> FREE
 ```
 
-`LOANED` is internal allocator state, not a public loan API. Allocation removes one index from its
-publisher-local per-class free list and changes `FREE -> LOANED`. `writeAndPublish()` writes the
-payload and metadata once, initializes the subscriber reference count, and publishes the state.
+Allocation removes one index from its publisher-local per-class free list and changes
+`FREE -> LOANED`. The copy path writes the payload once; the public `LoanedSample` path exposes only
+that chunk's payload area for direct application fill. Publication initializes the guard reference
+and publishes the state.
 The last valid release changes `PUBLISHED -> RELEASED`; explicit reclaim returns the index to the
 same class and changes `RELEASED -> FREE`.
 
@@ -121,56 +119,50 @@ references, duplicate release, invalid index/offset/pool ID, and stale generatio
 
 ## Multi-Subscriber Sharing And Release
 
-Registry control protocol v3 returns every compatible subscriber endpoint plus the publisher pool
-descriptor. The publisher connects one data UDS to each discovered subscriber. One publish does:
+Registry control protocol v4 returns every compatible subscriber endpoint and queue descriptor
+plus the publisher pool descriptor. The publisher connects one data UDS and maps one queue per
+discovered subscriber. One publish does:
 
 ```text
 allocate one chunk
 copy application payload into that chunk once
 set ref_count = connected subscriber count
-send the same fixed ChunkHandle notification to N sockets
-poll N fixed RELEASE frames
+enqueue the same fixed ChunkHandle into N subscriber queues
+process fixed RELEASE frames asynchronously on later calls/destruction
 decrement exactly once per connection
 reclaim at ref_count == 0
 ```
 
-Subscribers do not decrement the atomic directly. Instead, each successfully decoded notification
-can emit exactly one release on its connection after its owning copy finishes. The publisher is the
-single refcount writer and tracks one outstanding reference per endpoint, which avoids a
-subscriber/free-list synchronization contract and prevents a duplicate frame from decrementing
-twice. A normal disconnect while that connection has one known outstanding notification releases
-that connection's reference. Abrupt subscriber death and repair of an ambiguous outstanding
-reference remain Phase 6 work.
+Subscribers do not decrement the atomic directly. Each `SampleView` emits exactly one release on
+destruction; the owning API copies through a temporary view. The publisher is the single refcount
+writer and tracks outstanding handles per endpoint. Abrupt subscriber death and repair of an
+ambiguous outstanding reference remain Phase 6 work.
 
-Initial discovery waits before allocating when no subscriber exists, preserving publisher-first
-startup without leaving a chunk in `PUBLISHED`. If every notification delivery fails after
-allocation, the publisher removes all assigned references and reclaims the chunk.
+The copy API completes initial discovery before allocating. A loan may allocate before discovery,
+but failed publication cancels it or reclaims it after the guard reference, so no chunk remains
+stuck in `LOANED` or `PUBLISHED` merely because no endpoint accepted it.
 
-## Notification Protocol
+## Queue Metadata Protocol
 
-A pool notification is fixed at 272 bytes: 80 bytes of versioned metadata plus a bounded 192-byte
-SHM name field. It carries no business payload. A release is fixed at 40 bytes and includes pool ID,
-chunk index, generation, payload offset, and sequence. Both are explicitly big-endian encoded and
-validated; C++ structure padding is not sent over UDS.
+A queue wake is fixed at 272 bytes and carries pool descriptor plus queue ID. A release is fixed at
+32 bytes and carries the logical chunk handle. Both are explicitly big-endian encoded and contain
+no business payload. The `ChunkHandle` itself resides in the shared ring queue.
 
 ## Copy And Allocation Semantics
 
-Phase 4 is not zero-copy. One application-buffer-to-SHM copy remains at the publisher. The current
-public API returns owning `ReceivedMessage`, so each subscriber also copies the shared payload into
-its own `std::vector`. What Phase 4 removes is N separate SHM payload copies and all per-message
+Ordinary `publish()` retains one application-buffer-to-SHM copy, and owning `ReceivedMessage`
+copies from a temporary view. The Phase 5 loan-to-view path avoids middleware payload copies
+between application fill and subscriber read. All paths continue to avoid per-message
 `shm_open`/`ftruncate`/`mmap`/`munmap`/`shm_unlink` operations.
 
 The chunk allocator performs no per-message payload allocation. Publisher connection bookkeeping,
-notification/release polling containers, control-protocol strings/vectors, and each owning
+wake/release polling containers, control-protocol strings/vectors, and each owning
 subscriber message can still allocate ordinary process heap memory. Their measurement and later
-optimization are not Phase 4 goals.
+optimization are deferred to the benchmark/profiling phases.
 
 ## Known Limitations
 
-- No subscriber ring buffer or queue.
-- No `DROP_NEWEST`, `DROP_OLDEST`, or blocking backpressure policy.
-- No public `LoanedSample` or `SampleView`.
-- No `eventfd`, shared queue, or `SCM_RIGHTS` optimization.
+- No `eventfd` or `SCM_RIGHTS` optimization; UDS wakes remain in use.
 - A release timeout can retain a published chunk because safe crash-time reference repair is not
   implemented until Phase 6.
 - No heartbeat or dead-process detection.

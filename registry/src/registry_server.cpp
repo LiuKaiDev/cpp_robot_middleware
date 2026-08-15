@@ -64,6 +64,13 @@ detail::PayloadWriter discoveryBody(const DiscoveryResult& result) {
         writer.writeU64(subscriber.endpoint_id);
         writer.writeString(subscriber.data_socket_path);
         writer.writeU64(subscriber.max_message_size);
+        writer.writeString(subscriber.queue.shm_name);
+        writer.writeU64(subscriber.queue.queue_id);
+        writer.writeU64(subscriber.queue.segment_size);
+        writer.writeU32(subscriber.queue.capacity);
+        writer.writeU16(subscriber.queue.layout_version);
+        writer.writeU16(subscriber.queue.overflow_policy);
+        writer.writeU64(subscriber.queue.block_timeout_ms);
     }
     return writer;
 }
@@ -315,10 +322,15 @@ struct RegistryServer::Impl {
             std::string type_name;
             std::string type_hash;
             std::string data_socket_path;
+            SharedQueueMetadata queue;
             if (!reader.readU64(node_id) || !reader.readString(topic_name) ||
                 !reader.readString(type_name) || !reader.readString(type_hash) ||
                 !reader.readU64(max_message_size) || !reader.readString(data_socket_path) ||
-                !reader.readU16(transport) || !reader.empty()) {
+                !reader.readU16(transport) || !reader.readString(queue.shm_name) ||
+                !reader.readU64(queue.queue_id) || !reader.readU64(queue.segment_size) ||
+                !reader.readU32(queue.capacity) || !reader.readU16(queue.layout_version) ||
+                !reader.readU16(queue.overflow_policy) ||
+                !reader.readU64(queue.block_timeout_ms) || !reader.empty()) {
                 queueResponse(fd, header.request_id, ErrorCode::InvalidControlMessage, {});
                 return;
             }
@@ -329,7 +341,7 @@ struct RegistryServer::Impl {
             const EndpointResult result =
                 state.subscribe(client.connection_id, node_id, topic_name, type_name, type_hash,
                                 static_cast<std::size_t>(max_message_size), data_socket_path,
-                                static_cast<TransportType>(transport));
+                                static_cast<TransportType>(transport), std::move(queue));
             const auto body = endpointBody(result);
             queueResponse(fd, header.request_id, result.error, body.data());
             if (result.error == ErrorCode::Ok) {

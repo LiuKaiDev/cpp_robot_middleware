@@ -30,6 +30,24 @@ struct SharedPoolMetadata {
     std::uint16_t layout_version{0};
 };
 
+struct SharedQueueMetadata {
+    std::string shm_name;
+    std::uint64_t queue_id{0};
+    std::uint64_t segment_size{0};
+    std::uint32_t capacity{0};
+    std::uint16_t layout_version{0};
+    std::uint16_t overflow_policy{0};
+    std::uint64_t block_timeout_ms{0};
+};
+
+inline bool operator==(const SharedQueueMetadata& left, const SharedQueueMetadata& right) noexcept {
+    return left.shm_name == right.shm_name && left.queue_id == right.queue_id &&
+           left.segment_size == right.segment_size && left.capacity == right.capacity &&
+           left.layout_version == right.layout_version &&
+           left.overflow_policy == right.overflow_policy &&
+           left.block_timeout_ms == right.block_timeout_ms;
+}
+
 inline bool operator==(const SharedPoolMetadata& left, const SharedPoolMetadata& right) noexcept {
     return left.shm_name == right.shm_name && left.pool_id == right.pool_id &&
            left.segment_size == right.segment_size && left.layout_version == right.layout_version;
@@ -63,6 +81,7 @@ struct SubscriberEndpoint {
     std::string data_socket_path;
     std::size_t max_message_size{0};
     TransportType transport{TransportType::UnixDomainSocket};
+    SharedQueueMetadata queue;
 };
 
 struct IdResult {
@@ -81,6 +100,7 @@ struct DiscoveredSubscriber {
     std::uint64_t endpoint_id{0};
     std::string data_socket_path;
     std::size_t max_message_size{0};
+    SharedQueueMetadata queue;
 };
 
 struct DiscoveryResult {
@@ -108,7 +128,8 @@ class RegistryState {
                              const std::string& topic_name, const std::string& type_name,
                              const std::string& type_hash, std::size_t max_message_size,
                              const std::string& data_socket_path,
-                             TransportType transport = TransportType::UnixDomainSocket);
+                             TransportType transport = TransportType::UnixDomainSocket,
+                             SharedQueueMetadata queue = {});
     ErrorCode unsubscribe(ConnectionId connection, std::uint64_t node_id,
                           std::uint64_t endpoint_id);
 

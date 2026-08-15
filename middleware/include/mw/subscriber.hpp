@@ -2,6 +2,7 @@
 
 #include <mw/message.hpp>
 #include <mw/result.hpp>
+#include <mw/sample_view.hpp>
 
 #include <chrono>
 #include <memory>
@@ -26,6 +27,8 @@ class Subscriber {
 
     std::optional<ReceivedMessage> take();
     std::optional<ReceivedMessage> waitAndTake(std::chrono::milliseconds timeout);
+    std::optional<SampleView> takeView();
+    std::optional<SampleView> waitAndTakeView(std::chrono::milliseconds timeout);
 
     ErrorCode lastError() const noexcept;
     const std::string& topic() const noexcept;

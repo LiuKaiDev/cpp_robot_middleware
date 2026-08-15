@@ -1,20 +1,27 @@
 add_library(
     mw_core SHARED
     src/context.cpp
+    src/loaned_sample.cpp
     src/detail/control_protocol.cpp
     src/detail/frame_protocol.cpp
     src/detail/memory_pool.cpp
     src/detail/pool_protocol.cpp
+    src/detail/queue_protocol.cpp
     src/detail/registry_client.cpp
     src/detail/shared_memory.cpp
     src/detail/shm_protocol.cpp
     src/detail/socket_io.cpp
+    src/detail/subscriber_queue.cpp
     src/detail/unix_socket.cpp
     src/publisher.cpp
+    src/sample_view.cpp
     src/subscriber.cpp
     src/version.cpp
 )
 add_library(mw::mw_core ALIAS mw_core)
+
+find_package(Threads REQUIRED)
+target_link_libraries(mw_core PRIVATE Threads::Threads)
 
 target_compile_features(mw_core PUBLIC cxx_std_17)
 set_target_properties(

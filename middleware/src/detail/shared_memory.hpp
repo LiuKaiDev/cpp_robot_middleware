@@ -11,6 +11,7 @@ class SharedMemoryRegion {
   public:
     static SharedMemoryRegion create(const std::string& name, std::size_t size);
     static SharedMemoryRegion openReadOnly(const std::string& name, std::size_t expected_size);
+    static SharedMemoryRegion openReadWrite(const std::string& name, std::size_t expected_size);
 
     ~SharedMemoryRegion();
 

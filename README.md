@@ -13,19 +13,20 @@ provides a focused environment for studying the IPC, resource-lifetime, backpres
 performance tradeoffs beneath a robotics communication API without implementing a full DDS or
 ROS2 RMW stack.
 
-## Current Status: Phase 4 - Memory Pool / Message Lifecycle
+## Current Status: Phase 5 - Ring Buffer / Backpressure / Loaned Sample
 
-Phase 4 replaces per-message SHM objects with one preallocated publisher-lifetime pool. A publisher
-stores a payload once in a generation-protected chunk, sends the same logical handle to every
-discovered subscriber, and reuses the chunk after all release references reach zero. The copied
-Phase 1 UDS transport remains an independent baseline.
+Phase 5 adds one bounded shared-memory ring queue per subscriber, per-endpoint drop/block policies,
+publisher payload loans, and read-only subscriber views. The verified loaned SHM path lets an
+application fill a pool chunk directly and lets subscribers read that same logical chunk without a
+middleware payload copy between those points. The ordinary SHM copy path and copied Phase 1 UDS
+transport remain independent supported paths.
 
 ## Architecture Direction
 
 The architecture separates the `mw_registryd` UDS control plane from publisher-to-subscriber data
-transfer. Registry protocol v3 distributes pool and N-subscriber endpoint metadata without owning
-payload memory. Direct mode retains the Phase 1 UDS baseline. The core library remains independent
-of ROS2.
+transfer. Registry protocol v4 distributes pool metadata plus each subscriber's queue descriptor
+without owning payload memory or queue storage. Direct mode retains the Phase 1 UDS baseline. The
+core library remains independent of ROS2.
 
 ## Implemented
 
@@ -48,7 +49,17 @@ of ROS2.
 - Mutex-protected publisher-owned per-class free lists
 - Generation-protected logical chunk handles and explicit lifecycle state
 - Publisher-owned reference decrement from exactly-once subscriber release frames
-- One shared SHM payload and N fixed handle notifications for multiple subscribers
+- One shared SHM payload, N bounded handle queues, and fixed metadata wakes/releases
+- One subscriber-owned fixed-capacity SHM ring queue per SHM endpoint
+- Per-subscriber `DROP_NEWEST`, `DROP_OLDEST`, and monotonic `BLOCK_WITH_TIMEOUT`
+- Queue wraparound, empty/full handling, wake coalescing, and internal queue counters
+- Publisher guard reference preventing enqueue-versus-reclaim races
+- `Publisher::loan()` and move-only RAII `LoanedSample`
+- Cancellation of unpublished loans, move ownership, and double-publish protection
+- Move-only, read-only RAII `SampleView`
+- `Subscriber::takeView()` and `waitAndTakeView()` without an owning payload copy
+- Shared view release context allowing `SampleView` to outlive `Subscriber`
+- Retained SHM copy path through `Publisher::publish()` and owning receive compatibility
 - Persistent subscriber pool mapping and publisher-owned normal-path `shm_unlink`
 - Fixed 24-byte frame header plus copied payload
 - Strict sequence and monotonic publish timestamp metadata
@@ -112,8 +123,9 @@ Inspect the live registry with:
 
 Use `--transport uds` for the registry-discovered copied-payload baseline; omit `--registry` for
 direct UDS mode. See [docs/DATA_PLANE.md](docs/DATA_PLANE.md) for both payload paths,
-[docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md) for discovery, and
-[docs/MEMORY_POOL.md](docs/MEMORY_POOL.md) for the Phase 4 layout and lifecycle.
+[docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md) for discovery,
+[docs/MEMORY_POOL.md](docs/MEMORY_POOL.md) for the pool layout, and
+[docs/QUEUES_AND_LOANING.md](docs/QUEUES_AND_LOANING.md) for Phase 5 queue and RAII lifecycles.
 
 ## Install
 
@@ -158,14 +170,13 @@ target_link_libraries(example PRIVATE mw::mw_core)
 ## Known Limitations
 
 - Registry-discovered SHM supports N subscribers; the copied UDS baseline remains one-to-one.
-- No subscriber ring buffer/queue or `DROP_NEWEST`, `DROP_OLDEST`, or blocking backpressure policy.
-- No public `LoanedSample`, public loan API, or read-only `SampleView`.
-- No `eventfd`, shared notification queue, or `SCM_RIGHTS` optimization.
-- No heartbeat, crash detection/recovery, ROS2 adapter, or benchmark framework exists.
+- UDS notifications remain in use; `eventfd` and `SCM_RIGHTS` optimizations are deferred.
+- No heartbeat, dead-process detection, SIGKILL recovery, crash-time queue/refcount repair, ROS2
+  adapter, benchmark framework, or full metrics system exists.
 - Registry requests are synchronous and are not multiplexed across application threads.
 - The UDS path copies payload data through kernel socket buffers and is not zero-copy.
-- The SHM path copies the application buffer into one shared chunk and each subscriber copies that
-  chunk into owning `ReceivedMessage`; it is not zero-copy.
-- Clean completion unlinks publisher-owned pools. Crash-time orphan and refcount repair after
-  `SIGKILL` are deferred to Phase 6.
+- Ordinary SHM `publish()` copies into the pool, and owning `ReceivedMessage` copies from a
+  `SampleView`; only the explicitly verified loan-to-view path avoids middleware payload copies.
+- Clean completion unlinks publisher pools and subscriber queues. Orphan, queue, and reference
+  repair after `SIGKILL` are deferred to Phase 6.
 - An unclean subscriber exit can leave a stale socket pathname that must be removed manually.

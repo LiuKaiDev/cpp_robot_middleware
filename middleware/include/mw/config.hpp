@@ -18,6 +18,14 @@ enum class TransportType : std::uint16_t {
 
 const char* transportTypeName(TransportType transport) noexcept;
 
+enum class OverflowPolicy : std::uint16_t {
+    DropNewest = 1,
+    DropOldest = 2,
+    BlockWithTimeout = 3,
+};
+
+const char* overflowPolicyName(OverflowPolicy policy) noexcept;
+
 struct MemoryPoolClassConfig {
     std::size_t chunk_size{0};
     std::uint32_t chunk_count{0};
@@ -58,6 +66,9 @@ struct SubscriberConfig {
     std::string type_name{"mw.raw"};
     std::string type_hash{"mw.raw.v1"};
     TransportType transport{TransportType::UnixDomainSocket};
+    std::uint32_t queue_depth{8U};
+    OverflowPolicy overflow_policy{OverflowPolicy::DropOldest};
+    std::chrono::milliseconds block_timeout{100};
 };
 
 struct RegistryConfig {

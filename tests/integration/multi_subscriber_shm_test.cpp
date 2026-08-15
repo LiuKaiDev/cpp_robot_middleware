@@ -3,12 +3,8 @@
 #include <mw/result.hpp>
 
 #include "detail/registry_client.hpp"
-#include "detail/socket_io.hpp"
-#include "detail/unix_socket.hpp"
-
 #include <gtest/gtest.h>
 
-#include <array>
 #include <cerrno>
 #include <chrono>
 #include <csignal>
@@ -16,9 +12,7 @@
 #include <cstdint>
 #include <fcntl.h>
 #include <filesystem>
-#include <future>
 #include <map>
-#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -213,7 +207,8 @@ std::set<std::string> projectPoolObjects() {
     for (std::filesystem::directory_iterator iterator{"/dev/shm", error}, end;
          !error && iterator != end; iterator.increment(error)) {
         const std::string name = iterator->path().filename().string();
-        if (name.rfind("mw_p4_", 0U) == 0U) {
+        if (name.rfind("mw_p4_", 0U) == 0U || name.rfind("mw_p5_", 0U) == 0U ||
+            name.rfind("mw_q5_", 0U) == 0U) {
             objects.insert(name);
         }
     }
@@ -329,13 +324,6 @@ TEST(MultiSubscriberShmIntegrationTest, NormalDisconnectReleasesKnownReferenceFo
     ASSERT_TRUE(waitForRegistry(registry_path));
 
     {
-        mw::detail::RegistryClient abandoned_client{mw::RegistryConfig{registry_path}};
-        const std::uint64_t abandoned_node = abandoned_client.registerNode("abandoned_subscriber");
-        auto listener = mw::detail::UnixListener::create(abandoned_path);
-        const auto abandoned_endpoint =
-            abandoned_client.subscribe(abandoned_node, topic, "mw.raw", "mw.raw.v1", 4096U,
-                                       abandoned_path, mw::TransportType::SharedMemory);
-
         mw::Context publisher_context{"disconnect_publisher", mw::RegistryConfig{registry_path}};
         mw::PublisherConfig publisher_config;
         publisher_config.max_message_size = 4096U;
@@ -343,31 +331,18 @@ TEST(MultiSubscriberShmIntegrationTest, NormalDisconnectReleasesKnownReferenceFo
         publisher_config.memory_pool.size_classes = {{4096U, 1U}};
         auto publisher = publisher_context.createPublisher(topic, publisher_config);
         std::vector<std::uint8_t> payload(1024U, 0x7BU);
-        auto first_publish = std::async(std::launch::async, [&publisher, &payload] {
-            return publisher.publish(payload.data(), payload.size());
-        });
 
-        std::optional<mw::detail::UniqueFd> abandoned_connection;
-        const auto accept_deadline = std::chrono::steady_clock::now() + 5s;
-        while (!abandoned_connection.has_value() &&
-               std::chrono::steady_clock::now() < accept_deadline) {
-            abandoned_connection = listener.accept();
-            if (!abandoned_connection.has_value()) {
-                std::this_thread::sleep_for(10ms);
-            }
+        {
+            mw::Context abandoned_context{"abandoned_subscriber",
+                                          mw::RegistryConfig{registry_path}};
+            mw::SubscriberConfig abandoned_config;
+            abandoned_config.socket_path = abandoned_path;
+            abandoned_config.max_message_size = 4096U;
+            abandoned_config.transport = mw::TransportType::SharedMemory;
+            auto abandoned = abandoned_context.createSubscriber(topic, abandoned_config);
+            EXPECT_EQ(publisher.publish(payload.data(), payload.size()).error,
+                      mw::ErrorCode::Ok);
         }
-        ASSERT_TRUE(abandoned_connection.has_value());
-        std::array<std::uint8_t, mw::detail::kPoolNotificationSize> notification{};
-        ASSERT_EQ(mw::detail::readExact(abandoned_connection->get(), notification.data(),
-                                        notification.size())
-                      .status,
-                  mw::detail::IoStatus::Complete);
-        abandoned_connection.reset();
-
-        const mw::PublishResult first_result = first_publish.get();
-        EXPECT_EQ(first_result.error, mw::ErrorCode::ConnectionLost);
-        abandoned_client.unsubscribe(abandoned_node, abandoned_endpoint.endpoint_id);
-        abandoned_client.unregisterNode(abandoned_node);
 
         mw::Context subscriber_context{"replacement_subscriber", mw::RegistryConfig{registry_path}};
         mw::SubscriberConfig subscriber_config;
@@ -376,13 +351,14 @@ TEST(MultiSubscriberShmIntegrationTest, NormalDisconnectReleasesKnownReferenceFo
         subscriber_config.transport = mw::TransportType::SharedMemory;
         auto subscriber = subscriber_context.createSubscriber(topic, subscriber_config);
 
-        auto second_publish = std::async(std::launch::async, [&publisher, &payload] {
-            return publisher.publish(payload.data(), payload.size());
-        });
+        EXPECT_EQ(publisher.publish(payload.data(), payload.size()).error,
+                  mw::ErrorCode::QueueClosed);
+        const mw::PublishResult replacement_result =
+            publisher.publish(payload.data(), payload.size());
+        EXPECT_EQ(replacement_result.error, mw::ErrorCode::Ok);
         const auto message = subscriber.waitAndTake(5s);
         ASSERT_TRUE(message.has_value());
         EXPECT_EQ(message->payload, payload);
-        EXPECT_EQ(second_publish.get().error, mw::ErrorCode::Ok);
     }
     EXPECT_EQ(projectPoolObjects(), initial_objects);
 }

@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
@@ -124,6 +125,36 @@ TEST(MemoryPoolTest, EnforcesStateReferenceAndGenerationLifecycle) {
     EXPECT_NE(reused.handle.generation, allocation.handle.generation);
     EXPECT_EQ(pool->release(allocation.handle).error, mw::ErrorCode::InvalidChunkHandle);
     EXPECT_EQ(pool->cancel(reused.handle), mw::ErrorCode::Ok);
+}
+
+TEST(MemoryPoolTest, PublishesWritableLoanWithoutPayloadCopyAndSupportsGuardReference) {
+    mw::MemoryPoolConfig config;
+    config.size_classes = {{4096U, 1U}};
+    const auto info = descriptor("loan", config);
+    auto pool = mw::detail::MemoryPool::create(info, config);
+    auto view = mw::detail::MemoryPoolView::open(info, info.topic_id);
+    const auto allocation = pool->allocate(1000U);
+    ASSERT_EQ(allocation.error, mw::ErrorCode::Ok);
+    const auto writable = pool->writablePayload(allocation.handle);
+    ASSERT_EQ(writable.error, mw::ErrorCode::Ok);
+    ASSERT_NE(writable.payload, nullptr);
+    std::memset(writable.payload, 0xA5, 1000U);
+
+    ASSERT_EQ(pool->publishLoaned(allocation.handle, 1000U, 17U, 170U, 1U),
+              mw::ErrorCode::Ok);
+    ASSERT_EQ(pool->addReference(allocation.handle), mw::ErrorCode::Ok);
+    EXPECT_EQ(pool->snapshot(allocation.handle.chunk_index).ref_count, 2U);
+    const auto shared = view->read(allocation.handle, 4096U);
+    ASSERT_EQ(shared.error, mw::ErrorCode::Ok);
+    EXPECT_EQ(shared.sequence, 17U);
+    EXPECT_EQ(shared.payload_size, 1000U);
+    EXPECT_TRUE(std::all_of(shared.payload, shared.payload + shared.payload_size,
+                            [](std::uint8_t value) { return value == 0xA5U; }));
+
+    EXPECT_FALSE(pool->release(allocation.handle).became_released);
+    EXPECT_TRUE(pool->release(allocation.handle).became_released);
+    EXPECT_EQ(pool->reclaim(allocation.handle), mw::ErrorCode::Ok);
+    EXPECT_EQ(pool->instrumentation().payload_copies, 0U);
 }
 
 TEST(MemoryPoolTest, ReusesOneMappedChunkForThousandsOfMessages) {

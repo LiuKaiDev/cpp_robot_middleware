@@ -4,23 +4,29 @@
 
 #include "detail/frame_protocol.hpp"
 #include "detail/memory_pool.hpp"
-#include "detail/pool_protocol.hpp"
+#include "detail/queue_protocol.hpp"
 #include "detail/registry_client.hpp"
+#include "detail/sample_release_context.hpp"
 #include "detail/socket_io.hpp"
+#include "detail/subscriber_queue.hpp"
 #include "detail/unique_fd.hpp"
 #include "detail/unix_socket.hpp"
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <memory>
+#include <mutex>
 #include <poll.h>
 #include <stdexcept>
 #include <sys/socket.h>
 #include <system_error>
+#include <unistd.h>
 #include <utility>
 #include <vector>
 
@@ -47,26 +53,16 @@ void validateConfig(const SubscriberConfig& config, bool registry_mode) {
     if (registry_mode && (config.type_name.empty() || config.type_hash.empty())) {
         throw std::invalid_argument("subscriber type name and hash must not be empty");
     }
+    if (config.queue_depth == 0U || config.queue_depth > detail::kMaxSubscriberQueueDepth) {
+        throw std::invalid_argument("subscriber queue depth is outside the supported range");
+    }
+    if (!detail::validOverflowPolicy(config.overflow_policy)) {
+        throw std::invalid_argument("subscriber overflow policy is invalid");
+    }
+    if (config.block_timeout.count() <= 0) {
+        throw std::invalid_argument("subscriber block timeout must be positive");
+    }
 }
-
-enum class ReceiveStatus {
-    NeedMore,
-    MessageReady,
-    Disconnected,
-    Truncated,
-    InvalidFrame,
-    MessageTooLarge,
-    TransportMismatch,
-    SharedMemoryNotFound,
-    InvalidSharedMemory,
-    SharedMemoryError,
-    IoError,
-};
-
-struct ReceiveResult {
-    ReceiveStatus status{ReceiveStatus::NeedMore};
-    std::optional<ReceivedMessage> message;
-};
 
 int pollTimeout(std::chrono::steady_clock::time_point deadline,
                 std::chrono::milliseconds requested_timeout) noexcept {
@@ -84,9 +80,61 @@ int pollTimeout(std::chrono::steady_clock::time_point deadline,
         std::min<std::int64_t>(rounded_up.count(), std::numeric_limits<int>::max()));
 }
 
+std::uint64_t nextQueueId() noexcept {
+    static std::atomic<std::uint32_t> counter{1U};
+    const std::uint64_t process = static_cast<std::uint32_t>(::getpid());
+    const std::uint64_t value = counter.fetch_add(1U, std::memory_order_relaxed);
+    return (process << 32U) | value;
+}
+
+class SocketReleaseContext final : public detail::SampleReleaseContext {
+  public:
+    explicit SocketReleaseContext(detail::UniqueFd socket) noexcept : socket_(std::move(socket)) {}
+
+    int fd() const noexcept { return socket_.get(); }
+
+    void release(const detail::ChunkHandle& handle) noexcept override {
+        const auto frame = detail::encodeQueueRelease(handle);
+        std::lock_guard<std::mutex> lock{write_mutex_};
+        if (socket_) {
+            (void)detail::writeAll(socket_.get(), frame.data(), frame.size());
+        }
+    }
+
+  private:
+    detail::UniqueFd socket_;
+    std::mutex write_mutex_;
+};
+
+enum class UdsReceiveStatus {
+    NeedMore,
+    MessageReady,
+    Disconnected,
+    Truncated,
+    InvalidFrame,
+    MessageTooLarge,
+    TransportMismatch,
+    IoError,
+};
+
+struct UdsReceiveResult {
+    UdsReceiveStatus status{UdsReceiveStatus::NeedMore};
+    std::optional<ReceivedMessage> message;
+};
+
 } // namespace
 
 struct Subscriber::Impl {
+    struct ViewData {
+        std::shared_ptr<detail::SampleReleaseContext> release_context;
+        std::shared_ptr<detail::MemoryPoolView> pool_view;
+        detail::ChunkHandle handle;
+        const void* payload{nullptr};
+        std::size_t payload_size{0};
+        std::uint64_t sequence{0};
+        std::uint64_t publish_timestamp_ns{0};
+    };
+
     Impl(std::string topic_value, const SubscriberConfig& config_value)
         : topic(std::move(topic_value)), config(config_value),
           listener(detail::UnixListener::create(config.socket_path)) {}
@@ -96,195 +144,241 @@ struct Subscriber::Impl {
         : topic(std::move(topic_value)), config(config_value),
           listener(detail::UnixListener::create(config.socket_path)),
           registry_session(std::move(registry_session_value)) {
-        const detail::RegistryEndpoint endpoint = registry_session->subscribe(topic, config);
-        topic_id = endpoint.topic_id;
-        endpoint_id = endpoint.endpoint_id;
-        discovered_pool = endpoint.pool;
+        detail::QueueDescriptor advertised_queue;
+        if (config.transport == TransportType::SharedMemory) {
+            advertised_queue.queue_id = nextQueueId();
+            advertised_queue.shm_name = "/mw_q5_" + std::to_string(::getpid()) + "_" +
+                                        std::to_string(advertised_queue.queue_id);
+            advertised_queue.capacity = config.queue_depth;
+            advertised_queue.layout_version = detail::kQueueLayoutVersion;
+            advertised_queue.overflow_policy = config.overflow_policy;
+            advertised_queue.block_timeout_ms =
+                static_cast<std::uint64_t>(config.block_timeout.count());
+            advertised_queue.segment_size =
+                detail::SharedSubscriberQueue::requiredSegmentSize(config.queue_depth);
+            queue = detail::SharedSubscriberQueue::create(advertised_queue);
+        }
+
+        try {
+            const detail::RegistryEndpoint endpoint =
+                registry_session->subscribe(topic, config, advertised_queue);
+            topic_id = endpoint.topic_id;
+            endpoint_id = endpoint.endpoint_id;
+            discovered_pool = endpoint.pool;
+        } catch (...) {
+            queue.reset();
+            throw;
+        }
     }
 
     ~Impl() {
+        acceptPendingConnection();
+        if (queue) {
+            try {
+                const auto handles = queue->closeAndDrain();
+                if (release_context) {
+                    for (const detail::ChunkHandle& handle : handles) {
+                        release_context->release(handle);
+                    }
+                }
+            } catch (...) {
+            }
+        }
         if (registry_session && endpoint_id != 0U) {
             registry_session->unsubscribe(endpoint_id);
         }
     }
 
-    std::size_t wireHeaderSize() const noexcept {
-        return config.transport == TransportType::SharedMemory ? detail::kPoolNotificationSize
-                                                               : detail::kFrameHeaderSize;
+    void acceptPendingConnection() noexcept {
+        if (release_context) {
+            return;
+        }
+        try {
+            auto accepted = listener.accept();
+            if (accepted.has_value()) {
+                release_context =
+                    std::make_shared<SocketReleaseContext>(std::move(*accepted));
+                resetFrame();
+            }
+        } catch (...) {
+        }
     }
 
-    ReceiveResult receiveAvailable() {
+    int connectionFd() const noexcept {
+        return release_context ? release_context->fd() : -1;
+    }
+
+    UdsReceiveResult receiveUdsAvailable() {
         while (true) {
-            const std::size_t target_header_size = wireHeaderSize();
-            if (header_bytes < target_header_size) {
+            if (header_bytes < detail::kFrameHeaderSize) {
                 const ssize_t received =
-                    ::recv(connection.get(), header_buffer.data() + header_bytes,
-                           target_header_size - header_bytes, MSG_DONTWAIT);
+                    ::recv(connectionFd(), header_buffer.data() + header_bytes,
+                           detail::kFrameHeaderSize - header_bytes, MSG_DONTWAIT);
                 if (received > 0) {
                     header_bytes += static_cast<std::size_t>(received);
                     continue;
                 }
                 if (received == 0) {
-                    return {header_bytes == 0U ? ReceiveStatus::Disconnected
-                                               : ReceiveStatus::Truncated,
+                    return {header_bytes == 0U ? UdsReceiveStatus::Disconnected
+                                               : UdsReceiveStatus::Truncated,
                             std::nullopt};
                 }
                 if (errno == EINTR) {
                     continue;
                 }
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    return {ReceiveStatus::NeedMore, std::nullopt};
+                    return {UdsReceiveStatus::NeedMore, std::nullopt};
                 }
-                return {ReceiveStatus::IoError, std::nullopt};
+                return {UdsReceiveStatus::IoError, std::nullopt};
             }
 
-            if (config.transport == TransportType::SharedMemory) {
-                return receiveSharedMemory();
+            if (!decoded_header.has_value()) {
+                decoded_header =
+                    detail::decodeFrameHeader(header_buffer.data(), detail::kFrameHeaderSize);
+                if (!decoded_header.has_value()) {
+                    return {UdsReceiveStatus::InvalidFrame, std::nullopt};
+                }
+                const detail::FrameValidation validation =
+                    detail::validateFrameHeader(*decoded_header, config.max_message_size);
+                if (validation == detail::FrameValidation::BadMagic) {
+                    return {decoded_header->magic == detail::kQueueProtocolMagic
+                                ? UdsReceiveStatus::TransportMismatch
+                                : UdsReceiveStatus::InvalidFrame,
+                            std::nullopt};
+                }
+                if (validation == detail::FrameValidation::PayloadTooLarge) {
+                    return {UdsReceiveStatus::MessageTooLarge, std::nullopt};
+                }
+                payload.resize(decoded_header->payload_size);
             }
-            return receiveUds();
+
+            while (payload_bytes < payload.size()) {
+                const ssize_t received =
+                    ::recv(connectionFd(), payload.data() + payload_bytes,
+                           payload.size() - payload_bytes, MSG_DONTWAIT);
+                if (received > 0) {
+                    payload_bytes += static_cast<std::size_t>(received);
+                    continue;
+                }
+                if (received == 0) {
+                    return {UdsReceiveStatus::Truncated, std::nullopt};
+                }
+                if (errno == EINTR) {
+                    continue;
+                }
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    return {UdsReceiveStatus::NeedMore, std::nullopt};
+                }
+                return {UdsReceiveStatus::IoError, std::nullopt};
+            }
+
+            ReceivedMessage message{std::move(payload), decoded_header->sequence,
+                                    decoded_header->timestamp_ns};
+            resetFrame();
+            return {UdsReceiveStatus::MessageReady, std::move(message)};
         }
     }
 
-    ReceiveResult receiveUds() {
-        if (!decoded_header.has_value()) {
-            decoded_header =
-                detail::decodeFrameHeader(header_buffer.data(), detail::kFrameHeaderSize);
-            if (!decoded_header.has_value()) {
-                return {ReceiveStatus::InvalidFrame, std::nullopt};
-            }
-            const detail::FrameValidation validation =
-                detail::validateFrameHeader(*decoded_header, config.max_message_size);
-            if (validation == detail::FrameValidation::BadMagic) {
-                return {decoded_header->magic == detail::kPoolNotificationMagic
-                            ? ReceiveStatus::TransportMismatch
-                            : ReceiveStatus::InvalidFrame,
-                        std::nullopt};
-            }
-            if (validation == detail::FrameValidation::PayloadTooLarge) {
-                return {ReceiveStatus::MessageTooLarge, std::nullopt};
-            }
-            payload.resize(decoded_header->payload_size);
-        }
-
-        while (payload_bytes < payload.size()) {
-            const ssize_t received = ::recv(connection.get(), payload.data() + payload_bytes,
-                                            payload.size() - payload_bytes, MSG_DONTWAIT);
+    ErrorCode receiveWakeAvailable() {
+        while (header_bytes < detail::kQueueWakeSize) {
+            const ssize_t received =
+                ::recv(connectionFd(), header_buffer.data() + header_bytes,
+                       detail::kQueueWakeSize - header_bytes, MSG_DONTWAIT);
             if (received > 0) {
-                payload_bytes += static_cast<std::size_t>(received);
+                header_bytes += static_cast<std::size_t>(received);
                 continue;
             }
             if (received == 0) {
-                return {ReceiveStatus::Truncated, std::nullopt};
+                return header_bytes == 0U ? ErrorCode::ConnectionLost : ErrorCode::InvalidFrame;
             }
             if (errno == EINTR) {
                 continue;
             }
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                return {ReceiveStatus::NeedMore, std::nullopt};
+                return ErrorCode::Timeout;
             }
-            return {ReceiveStatus::IoError, std::nullopt};
+            return ErrorCode::IoError;
         }
 
-        ReceivedMessage message{std::move(payload), decoded_header->sequence,
-                                decoded_header->timestamp_ns};
+        const auto wake = detail::decodeQueueWake(header_buffer.data(), detail::kQueueWakeSize);
         resetFrame();
-        return {ReceiveStatus::MessageReady, std::move(message)};
+        if (!wake.has_value() || !queue ||
+            detail::validateQueueWake(*wake, queue->descriptor().queue_id, topic_id) !=
+                ErrorCode::Ok) {
+            return ErrorCode::InvalidFrame;
+        }
+        if (!discovered_pool.shm_name.empty() &&
+            (discovered_pool.shm_name != wake->pool.shm_name ||
+             discovered_pool.pool_id != wake->pool.pool_id ||
+             discovered_pool.segment_size != wake->pool.segment_size ||
+             discovered_pool.layout_version != wake->pool.layout_version)) {
+            return ErrorCode::InvalidSharedMemory;
+        }
+        try {
+            if (!pool_view) {
+                auto opened = detail::MemoryPoolView::open(wake->pool, topic_id);
+                pool_view = std::shared_ptr<detail::MemoryPoolView>(std::move(opened));
+                discovered_pool = wake->pool;
+            } else if (pool_view->descriptor().shm_name != wake->pool.shm_name ||
+                       pool_view->descriptor().pool_id != wake->pool.pool_id ||
+                       pool_view->descriptor().segment_size != wake->pool.segment_size) {
+                return ErrorCode::InvalidSharedMemory;
+            }
+        } catch (const MiddlewareError& error) {
+            return error.code();
+        } catch (const std::system_error& error) {
+            return error.code().value() == ENOENT ? ErrorCode::SharedMemoryNotFound
+                                                   : ErrorCode::SharedMemoryError;
+        } catch (...) {
+            return ErrorCode::SharedMemoryError;
+        }
+        return ErrorCode::Ok;
     }
 
-    ReceiveResult receiveSharedMemory() {
-        const auto notification =
-            detail::decodePoolNotification(header_buffer.data(), detail::kPoolNotificationSize);
-        if (!notification.has_value()) {
-            return {ReceiveStatus::InvalidFrame, std::nullopt};
+    std::optional<ViewData> tryTakeQueued() {
+        if (!queue || !pool_view || !release_context) {
+            return std::nullopt;
         }
-        const ErrorCode notification_validation =
-            detail::validatePoolNotification(*notification, config.max_message_size, topic_id);
-        if (notification_validation == ErrorCode::MessageTooLarge) {
-            return {ReceiveStatus::MessageTooLarge, std::nullopt};
+        const auto next = queue->peek();
+        if (!next.has_value()) {
+            return std::nullopt;
         }
-        if (notification_validation != ErrorCode::Ok) {
-            return {ReceiveStatus::InvalidFrame, std::nullopt};
+        if (next->pool_id != pool_view->descriptor().pool_id) {
+            last_error = ErrorCode::InvalidSharedMemory;
+            return std::nullopt;
         }
-
-        try {
-            if (!discovered_pool.shm_name.empty() &&
-                (discovered_pool.shm_name != notification->pool.shm_name ||
-                 discovered_pool.pool_id != notification->pool.pool_id ||
-                 discovered_pool.segment_size != notification->pool.segment_size ||
-                 discovered_pool.layout_version != notification->pool.layout_version)) {
-                return {ReceiveStatus::InvalidSharedMemory, std::nullopt};
-            }
-            if (!pool_view) {
-                pool_view = detail::MemoryPoolView::open(notification->pool, topic_id);
-            } else if (pool_view->descriptor().shm_name != notification->pool.shm_name ||
-                       pool_view->descriptor().pool_id != notification->pool.pool_id ||
-                       pool_view->descriptor().segment_size != notification->pool.segment_size) {
-                return {ReceiveStatus::InvalidSharedMemory, std::nullopt};
-            }
-
-            const detail::ChunkViewResult view =
-                pool_view->read(notification->handle, config.max_message_size);
-            if (view.error != ErrorCode::Ok || view.payload_size != notification->payload_size ||
-                view.sequence != notification->sequence ||
-                view.publish_timestamp_ns != notification->publish_timestamp_ns) {
-                return {ReceiveStatus::InvalidSharedMemory, std::nullopt};
-            }
-
-            std::vector<std::uint8_t> message_payload(view.payload_size);
-            if (!message_payload.empty()) {
-                std::memcpy(message_payload.data(), view.payload, message_payload.size());
-            }
-
-            const auto encoded_release =
-                detail::encodePoolRelease({notification->handle, notification->sequence});
-            const detail::IoResult release_result =
-                detail::writeAll(connection.get(), encoded_release.data(), encoded_release.size());
-            if (release_result.status != detail::IoStatus::Complete) {
-                return {release_result.status == detail::IoStatus::Closed
-                            ? ReceiveStatus::Disconnected
-                            : ReceiveStatus::IoError,
-                        std::nullopt};
-            }
-
-            ReceivedMessage message{
-                std::move(message_payload),         view.sequence,
-                view.publish_timestamp_ns,          notification->handle.pool_id,
-                notification->handle.chunk_index,   notification->handle.generation,
-                notification->handle.payload_offset};
-            resetFrame();
-            return {ReceiveStatus::MessageReady, std::move(message)};
-        } catch (const MiddlewareError&) {
-            return {ReceiveStatus::InvalidSharedMemory, std::nullopt};
-        } catch (const std::system_error& error) {
-            if (error.code().value() == ENOENT) {
-                return {ReceiveStatus::SharedMemoryNotFound, std::nullopt};
-            }
-            if (error.code().value() == EINVAL) {
-                return {ReceiveStatus::InvalidSharedMemory, std::nullopt};
-            }
-            return {ReceiveStatus::SharedMemoryError, std::nullopt};
-        } catch (const std::exception&) {
-            return {ReceiveStatus::SharedMemoryError, std::nullopt};
+        const auto handle = queue->tryDequeue();
+        if (!handle.has_value()) {
+            return std::nullopt;
         }
+        const detail::ChunkViewResult view = pool_view->read(*handle, config.max_message_size);
+        if (view.error != ErrorCode::Ok) {
+            release_context->release(*handle);
+            last_error = view.error;
+            return std::nullopt;
+        }
+        last_error = ErrorCode::Ok;
+        return ViewData{release_context, pool_view, *handle, view.payload, view.payload_size,
+                        view.sequence, view.publish_timestamp_ns};
     }
 
     void resetConnection() noexcept {
-        connection.reset();
+        release_context.reset();
         resetFrame();
     }
 
     void resetFrame() noexcept {
-        header_bytes = 0;
+        header_bytes = 0U;
         decoded_header.reset();
         payload.clear();
-        payload_bytes = 0;
+        payload_bytes = 0U;
     }
 
     std::string topic;
     SubscriberConfig config;
     detail::UnixListener listener;
-    detail::UniqueFd connection;
-    std::array<std::uint8_t, detail::kPoolNotificationSize> header_buffer{};
+    std::shared_ptr<SocketReleaseContext> release_context;
+    std::array<std::uint8_t, detail::kQueueWakeSize> header_buffer{};
     std::size_t header_bytes{0};
     std::optional<detail::FrameHeader> decoded_header;
     std::vector<std::uint8_t> payload;
@@ -294,7 +388,8 @@ struct Subscriber::Impl {
     std::uint64_t topic_id{0};
     std::uint64_t endpoint_id{0};
     detail::PoolDescriptor discovered_pool;
-    std::unique_ptr<detail::MemoryPoolView> pool_view;
+    std::unique_ptr<detail::SharedSubscriberQueue> queue;
+    std::shared_ptr<detail::MemoryPoolView> pool_view;
 };
 
 Subscriber::Subscriber(std::string topic, const SubscriberConfig& config) {
@@ -320,12 +415,24 @@ std::optional<ReceivedMessage> Subscriber::waitAndTake(std::chrono::milliseconds
     if (!impl_) {
         return std::nullopt;
     }
+    if (impl_->config.transport == TransportType::SharedMemory) {
+        auto view = waitAndTakeView(timeout);
+        if (!view.has_value()) {
+            return std::nullopt;
+        }
+        std::vector<std::uint8_t> copied(view->size());
+        if (!copied.empty()) {
+            std::memcpy(copied.data(), view->data(), copied.size());
+        }
+        return ReceivedMessage{std::move(copied), view->sequence(), view->publishTimestampNs(),
+                               view->poolId(), view->chunkIndex(), view->generation(),
+                               view->payloadOffset()};
+    }
 
     timeout = std::max(timeout, std::chrono::milliseconds{0});
     const auto deadline = std::chrono::steady_clock::now() + timeout;
-
     while (true) {
-        if (!impl_->connection) {
+        if (!impl_->release_context) {
             pollfd descriptor{impl_->listener.fd(), POLLIN, 0};
             const int result = ::poll(&descriptor, 1, pollTimeout(deadline, timeout));
             if (result == 0) {
@@ -339,26 +446,13 @@ std::optional<ReceivedMessage> Subscriber::waitAndTake(std::chrono::milliseconds
                 impl_->last_error = ErrorCode::IoError;
                 return std::nullopt;
             }
-            if ((descriptor.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
-                impl_->last_error = ErrorCode::IoError;
-                return std::nullopt;
+            impl_->acceptPendingConnection();
+            if (!impl_->release_context) {
+                continue;
             }
-
-            try {
-                auto accepted = impl_->listener.accept();
-                if (!accepted.has_value()) {
-                    continue;
-                }
-                impl_->connection = std::move(*accepted);
-                impl_->resetFrame();
-            } catch (const std::system_error&) {
-                impl_->last_error = ErrorCode::IoError;
-                return std::nullopt;
-            }
-            continue;
         }
 
-        pollfd descriptor{impl_->connection.get(), POLLIN, 0};
+        pollfd descriptor{impl_->connectionFd(), POLLIN, 0};
         const int result = ::poll(&descriptor, 1, pollTimeout(deadline, timeout));
         if (result == 0) {
             impl_->last_error = ErrorCode::Timeout;
@@ -372,7 +466,96 @@ std::optional<ReceivedMessage> Subscriber::waitAndTake(std::chrono::milliseconds
             impl_->resetConnection();
             return std::nullopt;
         }
-        if ((descriptor.revents & POLLNVAL) != 0) {
+        if ((descriptor.revents & (POLLIN | POLLHUP | POLLERR)) == 0) {
+            continue;
+        }
+
+        UdsReceiveResult received = impl_->receiveUdsAvailable();
+        switch (received.status) {
+        case UdsReceiveStatus::NeedMore:
+            continue;
+        case UdsReceiveStatus::MessageReady:
+            impl_->last_error = ErrorCode::Ok;
+            return std::move(received.message);
+        case UdsReceiveStatus::Disconnected:
+            impl_->last_error = ErrorCode::ConnectionLost;
+            break;
+        case UdsReceiveStatus::Truncated:
+        case UdsReceiveStatus::InvalidFrame:
+            impl_->last_error = ErrorCode::InvalidFrame;
+            break;
+        case UdsReceiveStatus::MessageTooLarge:
+            impl_->last_error = ErrorCode::MessageTooLarge;
+            break;
+        case UdsReceiveStatus::TransportMismatch:
+            impl_->last_error = ErrorCode::TransportMismatch;
+            break;
+        case UdsReceiveStatus::IoError:
+            impl_->last_error = ErrorCode::IoError;
+            break;
+        }
+        impl_->resetConnection();
+        return std::nullopt;
+    }
+}
+
+std::optional<SampleView> Subscriber::takeView() {
+    return waitAndTakeView(std::chrono::milliseconds{0});
+}
+
+std::optional<SampleView> Subscriber::waitAndTakeView(std::chrono::milliseconds timeout) {
+    if (!impl_) {
+        return std::nullopt;
+    }
+    if (impl_->config.transport != TransportType::SharedMemory) {
+        impl_->last_error = ErrorCode::UnsupportedTransport;
+        return std::nullopt;
+    }
+
+    timeout = std::max(timeout, std::chrono::milliseconds{0});
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (true) {
+        if (auto view = impl_->tryTakeQueued(); view.has_value()) {
+            return SampleView{std::move(view->release_context), std::move(view->pool_view),
+                              view->payload, view->payload_size, view->sequence,
+                              view->publish_timestamp_ns, view->handle.pool_id,
+                              view->handle.chunk_index, view->handle.generation,
+                              view->handle.payload_offset};
+        }
+        if (impl_->last_error != ErrorCode::Ok && impl_->last_error != ErrorCode::Timeout) {
+            return std::nullopt;
+        }
+
+        if (!impl_->release_context) {
+            pollfd descriptor{impl_->listener.fd(), POLLIN, 0};
+            const int result = ::poll(&descriptor, 1, pollTimeout(deadline, timeout));
+            if (result == 0) {
+                impl_->last_error = ErrorCode::Timeout;
+                return std::nullopt;
+            }
+            if (result < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                impl_->last_error = ErrorCode::IoError;
+                return std::nullopt;
+            }
+            impl_->acceptPendingConnection();
+            if (!impl_->release_context) {
+                continue;
+            }
+        }
+
+        pollfd descriptor{impl_->connectionFd(), POLLIN, 0};
+        const int result = ::poll(&descriptor, 1, pollTimeout(deadline, timeout));
+        if (result == 0) {
+            impl_->last_error = ErrorCode::Timeout;
+            return std::nullopt;
+        }
+        if (result < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
             impl_->last_error = ErrorCode::IoError;
             impl_->resetConnection();
             return std::nullopt;
@@ -380,42 +563,16 @@ std::optional<ReceivedMessage> Subscriber::waitAndTake(std::chrono::milliseconds
         if ((descriptor.revents & (POLLIN | POLLHUP | POLLERR)) == 0) {
             continue;
         }
-
-        ReceiveResult receive_result = impl_->receiveAvailable();
-        switch (receive_result.status) {
-        case ReceiveStatus::NeedMore:
+        const ErrorCode wake_error = impl_->receiveWakeAvailable();
+        if (wake_error == ErrorCode::Timeout) {
             continue;
-        case ReceiveStatus::MessageReady:
-            impl_->last_error = ErrorCode::Ok;
-            return std::move(receive_result.message);
-        case ReceiveStatus::Disconnected:
-            impl_->last_error = ErrorCode::ConnectionLost;
-            break;
-        case ReceiveStatus::Truncated:
-        case ReceiveStatus::InvalidFrame:
-            impl_->last_error = ErrorCode::InvalidFrame;
-            break;
-        case ReceiveStatus::MessageTooLarge:
-            impl_->last_error = ErrorCode::MessageTooLarge;
-            break;
-        case ReceiveStatus::TransportMismatch:
-            impl_->last_error = ErrorCode::TransportMismatch;
-            break;
-        case ReceiveStatus::SharedMemoryNotFound:
-            impl_->last_error = ErrorCode::SharedMemoryNotFound;
-            break;
-        case ReceiveStatus::InvalidSharedMemory:
-            impl_->last_error = ErrorCode::InvalidSharedMemory;
-            break;
-        case ReceiveStatus::SharedMemoryError:
-            impl_->last_error = ErrorCode::SharedMemoryError;
-            break;
-        case ReceiveStatus::IoError:
-            impl_->last_error = ErrorCode::IoError;
-            break;
         }
-        impl_->resetConnection();
-        return std::nullopt;
+        if (wake_error != ErrorCode::Ok) {
+            impl_->last_error = wake_error;
+            impl_->resetConnection();
+            return std::nullopt;
+        }
+        impl_->last_error = ErrorCode::Ok;
     }
 }
 
