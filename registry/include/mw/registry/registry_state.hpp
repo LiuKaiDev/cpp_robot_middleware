@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mw/config.hpp>
 #include <mw/result.hpp>
 
 #include <cstddef>
@@ -27,6 +28,7 @@ struct TopicRecord {
     std::string topic_name;
     std::string type_name;
     std::string type_hash;
+    TransportType transport{TransportType::UnixDomainSocket};
     std::size_t max_message_size{0};
     std::optional<std::uint64_t> publisher_endpoint;
     std::set<std::uint64_t> subscriber_endpoints;
@@ -37,6 +39,7 @@ struct PublisherEndpoint {
     std::uint64_t node_id{0};
     std::uint64_t topic_id{0};
     std::size_t max_message_size{0};
+    TransportType transport{TransportType::UnixDomainSocket};
 };
 
 struct SubscriberEndpoint {
@@ -45,6 +48,7 @@ struct SubscriberEndpoint {
     std::uint64_t topic_id{0};
     std::string data_socket_path;
     std::size_t max_message_size{0};
+    TransportType transport{TransportType::UnixDomainSocket};
 };
 
 struct IdResult {
@@ -61,8 +65,10 @@ struct EndpointResult {
 struct DiscoveryResult {
     ErrorCode error{ErrorCode::Ok};
     std::uint64_t subscriber_endpoint_id{0};
+    std::uint64_t topic_id{0};
     std::string data_socket_path;
     std::size_t max_message_size{0};
+    TransportType transport{TransportType::UnixDomainSocket};
 };
 
 class RegistryState {
@@ -72,14 +78,16 @@ class RegistryState {
 
     EndpointResult advertise(ConnectionId connection, std::uint64_t node_id,
                              const std::string& topic_name, const std::string& type_name,
-                             const std::string& type_hash, std::size_t max_message_size);
+                             const std::string& type_hash, std::size_t max_message_size,
+                             TransportType transport = TransportType::UnixDomainSocket);
     ErrorCode unadvertise(ConnectionId connection, std::uint64_t node_id,
                           std::uint64_t endpoint_id);
 
     EndpointResult subscribe(ConnectionId connection, std::uint64_t node_id,
                              const std::string& topic_name, const std::string& type_name,
                              const std::string& type_hash, std::size_t max_message_size,
-                             const std::string& data_socket_path);
+                             const std::string& data_socket_path,
+                             TransportType transport = TransportType::UnixDomainSocket);
     ErrorCode unsubscribe(ConnectionId connection, std::uint64_t node_id,
                           std::uint64_t endpoint_id);
 
@@ -95,7 +103,8 @@ class RegistryState {
     NodeRecord* ownedNode(ConnectionId connection, std::uint64_t node_id);
     const NodeRecord* ownedNode(ConnectionId connection, std::uint64_t node_id) const;
     TopicRecord& findOrCreateTopic(const std::string& topic_name, const std::string& type_name,
-                                   const std::string& type_hash, std::size_t max_message_size);
+                                   const std::string& type_hash, std::size_t max_message_size,
+                                   TransportType transport);
     void recomputeTopicMaxMessageSize(std::uint64_t topic_id);
     void eraseTopicIfEmpty(std::uint64_t topic_id);
 

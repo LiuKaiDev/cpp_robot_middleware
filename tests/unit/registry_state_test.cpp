@@ -109,4 +109,27 @@ TEST(RegistryStateTest, SupportsBothStartupOrdersAndCleanup) {
     EXPECT_TRUE(state.listTopics().empty());
 }
 
+TEST(RegistryStateTest, RejectsTransportMismatchAndReportsTransportInDiscovery) {
+    RegistryState state;
+    const auto publisher_node = state.registerNode(1U, "shm_publisher");
+    const auto subscriber_node = state.registerNode(2U, "shm_subscriber");
+    const auto publisher = state.advertise(1U, publisher_node.id, "/transport", "T", "H", 4096U,
+                                           mw::TransportType::SharedMemory);
+    ASSERT_EQ(publisher.error, ErrorCode::Ok);
+    EXPECT_EQ(state
+                  .subscribe(2U, subscriber_node.id, "/transport", "T", "H", 4096U,
+                             "/tmp/transport.sock", mw::TransportType::UnixDomainSocket)
+                  .error,
+              ErrorCode::TransportMismatch);
+
+    const auto subscriber = state.subscribe(2U, subscriber_node.id, "/transport", "T", "H", 4096U,
+                                            "/tmp/transport.sock", mw::TransportType::SharedMemory);
+    ASSERT_EQ(subscriber.error, ErrorCode::Ok);
+    const auto discovery = state.resolve(1U, publisher_node.id, publisher.endpoint_id);
+    EXPECT_EQ(discovery.error, ErrorCode::Ok);
+    EXPECT_EQ(discovery.topic_id, publisher.topic_id);
+    EXPECT_EQ(discovery.transport, mw::TransportType::SharedMemory);
+    EXPECT_EQ(state.queryTopic("/transport")->transport, mw::TransportType::SharedMemory);
+}
+
 } // namespace

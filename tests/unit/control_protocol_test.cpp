@@ -57,7 +57,7 @@ TEST(ControlProtocolTest, RejectsMalformedHeadersAndPayloadBounds) {
               mw::detail::ControlHeaderValidation::BadMagic);
 
     auto bad_version = encoded;
-    bad_version[5] = 2U;
+    bad_version[5] = static_cast<std::uint8_t>(mw::detail::kControlVersion + 1U);
     const auto bad_version_header =
         mw::detail::decodeControlHeader(bad_version.data(), bad_version.size());
     ASSERT_TRUE(bad_version_header.has_value());

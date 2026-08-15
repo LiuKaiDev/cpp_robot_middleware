@@ -137,13 +137,14 @@ void RegistryClient::unregisterNode(std::uint64_t node_id) {
 RegistryEndpoint RegistryClient::advertise(std::uint64_t node_id, const std::string& topic_name,
                                            const std::string& type_name,
                                            const std::string& type_hash,
-                                           std::size_t max_message_size) {
+                                           std::size_t max_message_size, TransportType transport) {
     PayloadWriter writer;
     writer.writeU64(node_id);
     writer.writeString(topic_name);
     writer.writeString(type_name);
     writer.writeString(type_hash);
     writer.writeU64(max_message_size);
+    writer.writeU16(static_cast<std::uint16_t>(transport));
     return readEndpoint(request(Opcode::AdvertiseTopic, writer.data(), request_timeout_));
 }
 
@@ -158,7 +159,8 @@ RegistryEndpoint RegistryClient::subscribe(std::uint64_t node_id, const std::str
                                            const std::string& type_name,
                                            const std::string& type_hash,
                                            std::size_t max_message_size,
-                                           const std::string& data_socket_path) {
+                                           const std::string& data_socket_path,
+                                           TransportType transport) {
     PayloadWriter writer;
     writer.writeU64(node_id);
     writer.writeString(topic_name);
@@ -166,6 +168,7 @@ RegistryEndpoint RegistryClient::subscribe(std::uint64_t node_id, const std::str
     writer.writeString(type_hash);
     writer.writeU64(max_message_size);
     writer.writeString(data_socket_path);
+    writer.writeU16(static_cast<std::uint16_t>(transport));
     return readEndpoint(request(Opcode::SubscribeTopic, writer.data(), request_timeout_));
 }
 
@@ -186,13 +189,15 @@ RegistryDiscovery RegistryClient::resolve(std::uint64_t node_id,
     PayloadReader reader{body};
     RegistryDiscovery discovery;
     std::uint64_t max_message_size = 0;
-    if (!reader.readU64(discovery.subscriber_endpoint_id) ||
+    std::uint16_t transport = 0;
+    if (!reader.readU64(discovery.subscriber_endpoint_id) || !reader.readU64(discovery.topic_id) ||
         !reader.readString(discovery.data_socket_path) || !reader.readU64(max_message_size) ||
-        !reader.empty()) {
+        !reader.readU16(transport) || !reader.empty()) {
         throw MiddlewareError(ErrorCode::InvalidControlMessage,
                               "registry response has invalid discovery data");
     }
     discovery.max_message_size = checkedSize(max_message_size);
+    discovery.transport = static_cast<TransportType>(transport);
     return discovery;
 }
 
@@ -249,13 +254,15 @@ RegistryTopicInfo RegistryClient::queryTopic(const std::string& topic_name) {
     std::uint64_t max_message_size = 0;
     std::uint64_t publisher_count = 0;
     std::uint64_t subscriber_count = 0;
+    std::uint16_t transport = 0;
     if (!reader.readU64(topic.topic_id) || !reader.readString(topic.topic_name) ||
         !reader.readString(topic.type_name) || !reader.readString(topic.type_hash) ||
-        !reader.readU64(max_message_size) || !reader.readU64(publisher_count) ||
-        !reader.readU64(subscriber_count) || !reader.empty()) {
+        !reader.readU16(transport) || !reader.readU64(max_message_size) ||
+        !reader.readU64(publisher_count) || !reader.readU64(subscriber_count) || !reader.empty()) {
         throw MiddlewareError(ErrorCode::InvalidControlMessage, "invalid topic info response");
     }
     topic.max_message_size = checkedSize(max_message_size);
+    topic.transport = static_cast<TransportType>(transport);
     topic.publisher_count = checkedSize(publisher_count);
     topic.subscriber_count = checkedSize(subscriber_count);
     return topic;
@@ -339,7 +346,7 @@ RegistrySession::~RegistrySession() {
 RegistryEndpoint RegistrySession::advertise(const std::string& topic_name,
                                             const PublisherConfig& config) {
     return client_.advertise(node_id_, topic_name, config.type_name, config.type_hash,
-                             config.max_message_size);
+                             config.max_message_size, config.transport);
 }
 
 void RegistrySession::unadvertise(std::uint64_t endpoint_id) noexcept {
@@ -352,7 +359,7 @@ void RegistrySession::unadvertise(std::uint64_t endpoint_id) noexcept {
 RegistryEndpoint RegistrySession::subscribe(const std::string& topic_name,
                                             const SubscriberConfig& config) {
     return client_.subscribe(node_id_, topic_name, config.type_name, config.type_hash,
-                             config.max_message_size, config.socket_path);
+                             config.max_message_size, config.socket_path, config.transport);
 }
 
 void RegistrySession::unsubscribe(std::uint64_t endpoint_id) noexcept {

@@ -27,6 +27,11 @@ enum class ErrorCode : std::uint16_t {
     InvalidRequestId = 16,
     NotRegistered = 17,
     EndpointNotFound = 18,
+    TransportMismatch = 19,
+    SharedMemoryError = 20,
+    SharedMemoryNotFound = 21,
+    InvalidSharedMemory = 22,
+    CleanupFailed = 23,
 };
 
 const char* errorMessage(ErrorCode error) noexcept;

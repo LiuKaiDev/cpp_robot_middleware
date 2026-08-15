@@ -26,6 +26,8 @@ mw_add_gtest(mw_frame_protocol_test unit/frame_protocol_test.cpp)
 mw_add_gtest(mw_control_protocol_test unit/control_protocol_test.cpp)
 mw_add_gtest(mw_registry_state_test unit/registry_state_test.cpp mw_registry_support)
 mw_add_gtest(mw_socket_io_test unit/socket_io_test.cpp)
+mw_add_gtest(mw_shared_memory_test unit/shared_memory_test.cpp)
+mw_add_gtest(mw_shm_protocol_test unit/shm_protocol_test.cpp)
 mw_add_gtest(mw_pubsub_test integration/pubsub_test.cpp Threads::Threads)
 mw_add_gtest(mw_process_pubsub_test integration/process_pubsub_test.cpp)
 mw_add_gtest(mw_registry_discovery_test integration/registry_discovery_test.cpp
@@ -37,6 +39,20 @@ target_compile_definitions(
         MW_MWCTL_PATH="$<TARGET_FILE:mwctl>"
         MW_PING_PUBLISHER_PATH="$<TARGET_FILE:mw_ping_publisher>"
         MW_PING_SUBSCRIBER_PATH="$<TARGET_FILE:mw_ping_subscriber>"
+)
+mw_add_gtest(mw_shm_transport_test integration/shm_transport_test.cpp)
+target_compile_definitions(
+    mw_shm_transport_test
+    PRIVATE
+        MW_REGISTRYD_PATH="$<TARGET_FILE:mw_registryd>"
+        MW_PING_PUBLISHER_PATH="$<TARGET_FILE:mw_ping_publisher>"
+        MW_PING_SUBSCRIBER_PATH="$<TARGET_FILE:mw_ping_subscriber>"
+)
+add_dependencies(
+    mw_shm_transport_test
+    mw_registryd
+    mw_ping_publisher
+    mw_ping_subscriber
 )
 add_dependencies(
     mw_registry_discovery_test

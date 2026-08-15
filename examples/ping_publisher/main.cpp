@@ -28,6 +28,7 @@ int main(int argc, char** argv) {
         config.max_message_size = std::max(mw::kDefaultMaxMessageSize, options.payload_size);
         config.type_name = options.type_name;
         config.type_hash = options.type_hash;
+        config.transport = options.transport;
         auto publisher = context.createPublisher(options.topic, config);
 
         std::vector<std::uint8_t> payload(options.payload_size);

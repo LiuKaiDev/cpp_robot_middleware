@@ -4,6 +4,9 @@
 
 #include "detail/frame_protocol.hpp"
 #include "detail/registry_client.hpp"
+#include "detail/shared_memory.hpp"
+#include "detail/shm_protocol.hpp"
+#include "detail/socket_io.hpp"
 #include "detail/unique_fd.hpp"
 #include "detail/unix_socket.hpp"
 
@@ -12,6 +15,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <poll.h>
 #include <stdexcept>
@@ -23,12 +27,22 @@
 namespace mw {
 namespace {
 
+bool validTransport(TransportType transport) noexcept {
+    return transport == TransportType::UnixDomainSocket || transport == TransportType::SharedMemory;
+}
+
 void validateConfig(const SubscriberConfig& config, bool registry_mode) {
     if (config.socket_path.empty()) {
         throw std::invalid_argument("subscriber socket path must not be empty");
     }
     if (config.max_message_size > std::numeric_limits<std::uint32_t>::max()) {
-        throw std::invalid_argument("subscriber max_message_size exceeds the frame protocol");
+        throw std::invalid_argument("subscriber max_message_size exceeds the data protocol");
+    }
+    if (!validTransport(config.transport)) {
+        throw std::invalid_argument("subscriber transport is invalid");
+    }
+    if (!registry_mode && config.transport != TransportType::UnixDomainSocket) {
+        throw std::invalid_argument("direct mode supports the UDS baseline only");
     }
     if (registry_mode && (config.type_name.empty() || config.type_hash.empty())) {
         throw std::invalid_argument("subscriber type name and hash must not be empty");
@@ -42,6 +56,10 @@ enum class ReceiveStatus {
     Truncated,
     InvalidFrame,
     MessageTooLarge,
+    TransportMismatch,
+    SharedMemoryNotFound,
+    InvalidSharedMemory,
+    SharedMemoryError,
     IoError,
 };
 
@@ -55,12 +73,10 @@ int pollTimeout(std::chrono::steady_clock::time_point deadline,
     if (requested_timeout.count() <= 0) {
         return 0;
     }
-
     const auto now = std::chrono::steady_clock::now();
     if (now >= deadline) {
         return 0;
     }
-
     const auto remaining = deadline - now;
     const auto rounded_up = std::chrono::duration_cast<std::chrono::milliseconds>(
         remaining + std::chrono::milliseconds{1} - std::chrono::nanoseconds{1});
@@ -80,7 +96,9 @@ struct Subscriber::Impl {
         : topic(std::move(topic_value)), config(config_value),
           listener(detail::UnixListener::create(config.socket_path)),
           registry_session(std::move(registry_session_value)) {
-        endpoint_id = registry_session->subscribe(topic, config).endpoint_id;
+        const detail::RegistryEndpoint endpoint = registry_session->subscribe(topic, config);
+        topic_id = endpoint.topic_id;
+        endpoint_id = endpoint.endpoint_id;
     }
 
     ~Impl() {
@@ -89,12 +107,18 @@ struct Subscriber::Impl {
         }
     }
 
+    std::size_t wireHeaderSize() const noexcept {
+        return config.transport == TransportType::SharedMemory ? detail::kShmNotificationSize
+                                                               : detail::kFrameHeaderSize;
+    }
+
     ReceiveResult receiveAvailable() {
         while (true) {
-            if (header_bytes < header_buffer.size()) {
+            const std::size_t target_header_size = wireHeaderSize();
+            if (header_bytes < target_header_size) {
                 const ssize_t received =
                     ::recv(connection.get(), header_buffer.data() + header_bytes,
-                           header_buffer.size() - header_bytes, MSG_DONTWAIT);
+                           target_header_size - header_bytes, MSG_DONTWAIT);
                 if (received > 0) {
                     header_bytes += static_cast<std::size_t>(received);
                     continue;
@@ -113,47 +137,129 @@ struct Subscriber::Impl {
                 return {ReceiveStatus::IoError, std::nullopt};
             }
 
+            if (config.transport == TransportType::SharedMemory) {
+                return receiveSharedMemory();
+            }
+            return receiveUds();
+        }
+    }
+
+    ReceiveResult receiveUds() {
+        if (!decoded_header.has_value()) {
+            decoded_header =
+                detail::decodeFrameHeader(header_buffer.data(), detail::kFrameHeaderSize);
             if (!decoded_header.has_value()) {
-                decoded_header =
-                    detail::decodeFrameHeader(header_buffer.data(), header_buffer.size());
-                if (!decoded_header.has_value()) {
-                    return {ReceiveStatus::InvalidFrame, std::nullopt};
-                }
+                return {ReceiveStatus::InvalidFrame, std::nullopt};
+            }
+            const detail::FrameValidation validation =
+                detail::validateFrameHeader(*decoded_header, config.max_message_size);
+            if (validation == detail::FrameValidation::BadMagic) {
+                return {decoded_header->magic == detail::kShmNotificationMagic
+                            ? ReceiveStatus::TransportMismatch
+                            : ReceiveStatus::InvalidFrame,
+                        std::nullopt};
+            }
+            if (validation == detail::FrameValidation::PayloadTooLarge) {
+                return {ReceiveStatus::MessageTooLarge, std::nullopt};
+            }
+            payload.resize(decoded_header->payload_size);
+        }
 
-                const detail::FrameValidation validation =
-                    detail::validateFrameHeader(*decoded_header, config.max_message_size);
-                if (validation == detail::FrameValidation::BadMagic) {
-                    return {ReceiveStatus::InvalidFrame, std::nullopt};
-                }
-                if (validation == detail::FrameValidation::PayloadTooLarge) {
-                    return {ReceiveStatus::MessageTooLarge, std::nullopt};
-                }
-                payload.resize(decoded_header->payload_size);
+        while (payload_bytes < payload.size()) {
+            const ssize_t received = ::recv(connection.get(), payload.data() + payload_bytes,
+                                            payload.size() - payload_bytes, MSG_DONTWAIT);
+            if (received > 0) {
+                payload_bytes += static_cast<std::size_t>(received);
+                continue;
+            }
+            if (received == 0) {
+                return {ReceiveStatus::Truncated, std::nullopt};
+            }
+            if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                return {ReceiveStatus::NeedMore, std::nullopt};
+            }
+            return {ReceiveStatus::IoError, std::nullopt};
+        }
+
+        ReceivedMessage message{std::move(payload), decoded_header->sequence,
+                                decoded_header->timestamp_ns};
+        resetFrame();
+        return {ReceiveStatus::MessageReady, std::move(message)};
+    }
+
+    ReceiveResult receiveSharedMemory() {
+        const auto notification =
+            detail::decodeShmNotification(header_buffer.data(), detail::kShmNotificationSize);
+        if (!notification.has_value()) {
+            return {ReceiveStatus::InvalidFrame, std::nullopt};
+        }
+        const detail::ShmValidation notification_validation =
+            detail::validateShmNotification(*notification, config.max_message_size, topic_id);
+        if (notification_validation == detail::ShmValidation::BadMagic) {
+            const auto uds_header =
+                detail::decodeFrameHeader(header_buffer.data(), detail::kFrameHeaderSize);
+            return {uds_header.has_value() && uds_header->magic == detail::kFrameMagic
+                        ? ReceiveStatus::TransportMismatch
+                        : ReceiveStatus::InvalidFrame,
+                    std::nullopt};
+        }
+        if (notification_validation == detail::ShmValidation::PayloadTooLarge) {
+            return {ReceiveStatus::MessageTooLarge, std::nullopt};
+        }
+        if (notification_validation != detail::ShmValidation::Valid) {
+            return {ReceiveStatus::InvalidFrame, std::nullopt};
+        }
+
+        try {
+            const auto& handle = notification->handle;
+            detail::SharedMemoryRegion region = detail::SharedMemoryRegion::openReadOnly(
+                handle.shm_name, static_cast<std::size_t>(handle.segment_size));
+            const auto header = detail::decodeSharedMemoryHeader(
+                static_cast<const std::uint8_t*>(region.data()), detail::kSharedMemoryHeaderSize);
+            if (!header.has_value() ||
+                detail::validateSharedMemoryHeader(*header, region.size(),
+                                                   config.max_message_size) !=
+                    detail::ShmValidation::Valid ||
+                !detail::sharedMemoryMetadataMatches(*header, handle)) {
+                return {ReceiveStatus::InvalidSharedMemory, std::nullopt};
             }
 
-            if (payload_bytes < payload.size()) {
-                const ssize_t received = ::recv(connection.get(), payload.data() + payload_bytes,
-                                                payload.size() - payload_bytes, MSG_DONTWAIT);
-                if (received > 0) {
-                    payload_bytes += static_cast<std::size_t>(received);
-                    continue;
-                }
-                if (received == 0) {
-                    return {ReceiveStatus::Truncated, std::nullopt};
-                }
-                if (errno == EINTR) {
-                    continue;
-                }
-                if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    return {ReceiveStatus::NeedMore, std::nullopt};
-                }
-                return {ReceiveStatus::IoError, std::nullopt};
+            std::vector<std::uint8_t> message_payload(
+                static_cast<std::size_t>(header->payload_size));
+            if (!message_payload.empty()) {
+                const auto* payload_source = static_cast<const std::uint8_t*>(region.data()) +
+                                             detail::kSharedMemoryHeaderSize;
+                std::memcpy(message_payload.data(), payload_source, message_payload.size());
             }
 
-            ReceivedMessage message{std::move(payload), decoded_header->sequence,
-                                    decoded_header->timestamp_ns};
+            const auto encoded_ack = detail::encodeShmAck(
+                {detail::kShmNotificationMagic, detail::kShmNotificationVersion,
+                 detail::ShmFrameKind::Ack, header->sequence});
+            const detail::IoResult ack_result =
+                detail::writeAll(connection.get(), encoded_ack.data(), encoded_ack.size());
+            if (ack_result.status != detail::IoStatus::Complete) {
+                return {ack_result.status == detail::IoStatus::Closed ? ReceiveStatus::Disconnected
+                                                                      : ReceiveStatus::IoError,
+                        std::nullopt};
+            }
+
+            ReceivedMessage message{std::move(message_payload), header->sequence,
+                                    header->publish_timestamp_ns};
             resetFrame();
             return {ReceiveStatus::MessageReady, std::move(message)};
+        } catch (const std::system_error& error) {
+            if (error.code().value() == ENOENT) {
+                return {ReceiveStatus::SharedMemoryNotFound, std::nullopt};
+            }
+            if (error.code().value() == EINVAL) {
+                return {ReceiveStatus::InvalidSharedMemory, std::nullopt};
+            }
+            return {ReceiveStatus::SharedMemoryError, std::nullopt};
+        } catch (const std::exception&) {
+            return {ReceiveStatus::SharedMemoryError, std::nullopt};
         }
     }
 
@@ -173,13 +279,14 @@ struct Subscriber::Impl {
     SubscriberConfig config;
     detail::UnixListener listener;
     detail::UniqueFd connection;
-    std::array<std::uint8_t, detail::kFrameHeaderSize> header_buffer{};
+    std::array<std::uint8_t, detail::kShmNotificationSize> header_buffer{};
     std::size_t header_bytes{0};
     std::optional<detail::FrameHeader> decoded_header;
     std::vector<std::uint8_t> payload;
     std::size_t payload_bytes{0};
     ErrorCode last_error{ErrorCode::Ok};
     std::shared_ptr<detail::RegistrySession> registry_session;
+    std::uint64_t topic_id{0};
     std::uint64_t endpoint_id{0};
 };
 
@@ -276,22 +383,32 @@ std::optional<ReceivedMessage> Subscriber::waitAndTake(std::chrono::milliseconds
             return std::move(receive_result.message);
         case ReceiveStatus::Disconnected:
             impl_->last_error = ErrorCode::ConnectionLost;
-            impl_->resetConnection();
-            return std::nullopt;
+            break;
         case ReceiveStatus::Truncated:
         case ReceiveStatus::InvalidFrame:
             impl_->last_error = ErrorCode::InvalidFrame;
-            impl_->resetConnection();
-            return std::nullopt;
+            break;
         case ReceiveStatus::MessageTooLarge:
             impl_->last_error = ErrorCode::MessageTooLarge;
-            impl_->resetConnection();
-            return std::nullopt;
+            break;
+        case ReceiveStatus::TransportMismatch:
+            impl_->last_error = ErrorCode::TransportMismatch;
+            break;
+        case ReceiveStatus::SharedMemoryNotFound:
+            impl_->last_error = ErrorCode::SharedMemoryNotFound;
+            break;
+        case ReceiveStatus::InvalidSharedMemory:
+            impl_->last_error = ErrorCode::InvalidSharedMemory;
+            break;
+        case ReceiveStatus::SharedMemoryError:
+            impl_->last_error = ErrorCode::SharedMemoryError;
+            break;
         case ReceiveStatus::IoError:
             impl_->last_error = ErrorCode::IoError;
-            impl_->resetConnection();
-            return std::nullopt;
+            break;
         }
+        impl_->resetConnection();
+        return std::nullopt;
     }
 }
 

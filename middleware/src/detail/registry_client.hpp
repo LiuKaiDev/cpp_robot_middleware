@@ -20,8 +20,10 @@ struct RegistryEndpoint {
 
 struct RegistryDiscovery {
     std::uint64_t subscriber_endpoint_id{0};
+    std::uint64_t topic_id{0};
     std::string data_socket_path;
     std::size_t max_message_size{0};
+    TransportType transport{TransportType::UnixDomainSocket};
 };
 
 struct RegistryNodeInfo {
@@ -34,6 +36,7 @@ struct RegistryTopicInfo {
     std::string topic_name;
     std::string type_name;
     std::string type_hash;
+    TransportType transport{TransportType::UnixDomainSocket};
     std::size_t max_message_size{0};
     std::size_t publisher_count{0};
     std::size_t subscriber_count{0};
@@ -53,12 +56,13 @@ class RegistryClient {
 
     RegistryEndpoint advertise(std::uint64_t node_id, const std::string& topic_name,
                                const std::string& type_name, const std::string& type_hash,
-                               std::size_t max_message_size);
+                               std::size_t max_message_size, TransportType transport);
     void unadvertise(std::uint64_t node_id, std::uint64_t endpoint_id);
 
     RegistryEndpoint subscribe(std::uint64_t node_id, const std::string& topic_name,
                                const std::string& type_name, const std::string& type_hash,
-                               std::size_t max_message_size, const std::string& data_socket_path);
+                               std::size_t max_message_size, const std::string& data_socket_path,
+                               TransportType transport);
     void unsubscribe(std::uint64_t node_id, std::uint64_t endpoint_id);
 
     RegistryDiscovery resolve(std::uint64_t node_id, std::uint64_t publisher_endpoint_id);

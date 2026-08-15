@@ -2,8 +2,8 @@
 
 ## Scope And Separation
 
-Phase 2 adds registry-based discovery on one Linux host. It deliberately keeps control traffic and
-payload traffic on separate Unix Domain Sockets:
+Phase 2 introduced registry-based discovery on one Linux host. Phase 3 extends endpoint metadata
+with a transport type while keeping control and payload responsibilities separate:
 
 ```text
 Context / Publisher / Subscriber / mwctl
@@ -13,7 +13,7 @@ Context / Publisher / Subscriber / mwctl
        mw_registryd control UDS
 
 Publisher --------------------------> Subscriber
-          Phase 1 frame + payload UDS
+       UDS payload frame, or SHM locator/ACK UDS
 ```
 
 `mw_registryd` stores identities and endpoint metadata. It does not proxy or copy user payloads.
@@ -41,16 +41,17 @@ The control plane uses `AF_UNIX`, `SOCK_STREAM`. Each frame begins with this log
 | Offset | Size | Field | Encoding |
 | --- | ---: | --- | --- |
 | 0 | 4 | magic (`0x4D574332`, `MWC2`) | big-endian |
-| 4 | 2 | protocol version (`1`) | big-endian |
+| 4 | 2 | protocol version (`2`) | big-endian |
 | 6 | 2 | opcode | big-endian |
 | 8 | 4 | request ID | big-endian |
 | 12 | 4 | payload size | big-endian |
 
-The header is encoded field by field; a C++ structure is never sent as the wire ABI. Payloads are
-bounded to 64 KiB before allocation. The server retains incomplete stream input until a complete
-header and declared payload are present. Bad magic, unsupported version, oversized payload,
-unknown opcode, malformed payload, and truncated connections cannot dispatch a partial state
-change.
+Version 2 adds endpoint transport metadata to advertise, subscribe, discovery, and topic-query
+payloads. The header is encoded field by field; a C++ structure is never sent as the wire ABI.
+Payloads are bounded to 64 KiB before allocation. The server retains incomplete stream input until
+a complete header and declared payload are present. Bad magic, unsupported version, oversized
+payload, unknown opcode, malformed payload, and truncated connections cannot dispatch a partial
+state change.
 
 ## Opcodes And Responses
 
@@ -77,9 +78,9 @@ A `NodeRecord` contains `node_id`, unique `node_name`, owning control connection
 publisher/subscriber endpoint IDs. IDs are monotonically assigned and are not reused by the running
 daemon.
 
-A `TopicRecord` contains `topic_id`, name, `type_name`, `type_hash`, negotiated maximum message
-size, at most one publisher endpoint, and zero or more subscriber endpoints. Empty topics are
-removed during clean endpoint teardown.
+A `TopicRecord` contains `topic_id`, name, `type_name`, `type_hash`, `transport_type`, negotiated
+maximum message size, at most one publisher endpoint, and zero or more subscriber endpoints. Empty
+topics are removed during clean endpoint teardown.
 
 Publisher and subscriber endpoints are distinct records with `endpoint_id`, `node_id`, and
 `topic_id`. A subscriber additionally records its Phase 1 `data_socket_path` and message-size
@@ -87,10 +88,10 @@ bound. That pathname is discovery metadata, not a control transport.
 
 ## Type Compatibility And Publisher Rule
 
-The registry treats a pair as compatible only when topic name, `type_name`, and `type_hash` all
-match exactly. It does not understand message fields and does not implement an IDL or schema
-converter. A mismatch returns `TypeMismatch`; a second publisher advertisement for an occupied
-topic returns `DuplicatePublisher`.
+The registry treats a pair as compatible only when topic name, `type_name`, `type_hash`, and
+`transport_type` all match exactly. It does not understand message fields and does not implement an
+IDL or schema converter. A schema mismatch returns `TypeMismatch`; a UDS/SHM mismatch returns
+`TransportMismatch`; a second active publisher returns `DuplicatePublisher`.
 
 The state model retains N subscribers. The Phase 2 copied-payload data plane still establishes one
 Phase 1 connection selected by discovery; multi-subscriber payload fan-out belongs to the later
@@ -141,6 +142,7 @@ lists are sorted by name for deterministic output.
   compatible subscriber.
 - Registry sessions are intended to be called serially by an application; concurrent request
   multiplexing is not implemented.
-- Discovery chooses one registered subscriber for the Phase 1 one-to-one copied-payload path.
-- No shared memory, memory pool, subscriber queue, backpressure, loaned sample, ROS2 adapter, or
-  benchmark framework is implemented.
+- Discovery chooses one registered subscriber for both current one-to-one payload paths.
+- The registry never creates, maps, unlinks, or forwards shared-memory payload objects.
+- No memory pool, subscriber queue, backpressure, loaned sample, ROS2 adapter, or benchmark
+  framework is implemented.

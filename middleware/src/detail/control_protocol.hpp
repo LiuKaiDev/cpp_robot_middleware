@@ -12,7 +12,7 @@
 namespace mw::detail {
 
 inline constexpr std::uint32_t kControlMagic = 0x4D574332U;
-inline constexpr std::uint16_t kControlVersion = 1U;
+inline constexpr std::uint16_t kControlVersion = 2U;
 inline constexpr std::size_t kControlHeaderSize = 16U;
 inline constexpr std::size_t kMaxControlPayloadSize = 64U * 1024U;
 

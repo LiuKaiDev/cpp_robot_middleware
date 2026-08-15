@@ -1,5 +1,7 @@
 #pragma once
 
+#include <mw/config.hpp>
+
 #include <charconv>
 #include <chrono>
 #include <cstddef>
@@ -20,6 +22,7 @@ struct PingOptions {
     std::size_t count{1};
     std::size_t payload_size{64};
     std::chrono::milliseconds timeout{5000};
+    mw::TransportType transport{mw::TransportType::UnixDomainSocket};
 };
 
 inline std::size_t parseSize(std::string_view text, std::string_view option_name) {
@@ -57,6 +60,14 @@ inline PingOptions parseOptions(int argc, char** argv) {
         } else if (name == "--timeout-ms") {
             const std::size_t timeout = parseSize(value, name);
             options.timeout = std::chrono::milliseconds{timeout};
+        } else if (name == "--transport") {
+            if (value == "uds") {
+                options.transport = mw::TransportType::UnixDomainSocket;
+            } else if (value == "shm") {
+                options.transport = mw::TransportType::SharedMemory;
+            } else {
+                throw std::invalid_argument("--transport must be uds or shm");
+            }
         } else {
             throw std::invalid_argument("unknown option " + std::string(name));
         }
@@ -70,6 +81,9 @@ inline PingOptions parseOptions(int argc, char** argv) {
     }
     if (options.count == 0U) {
         throw std::invalid_argument("--count must be greater than zero");
+    }
+    if (options.registry_path.empty() && options.transport == mw::TransportType::SharedMemory) {
+        throw std::invalid_argument("--transport shm requires --registry");
     }
     return options;
 }

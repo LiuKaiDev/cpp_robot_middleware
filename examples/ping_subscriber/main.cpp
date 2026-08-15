@@ -27,6 +27,7 @@ int main(int argc, char** argv) {
         config.max_message_size = std::max(mw::kDefaultMaxMessageSize, options.payload_size);
         config.type_name = options.type_name;
         config.type_hash = options.type_hash;
+        config.transport = options.transport;
         auto subscriber = context.createSubscriber(options.topic, config);
 
         std::size_t received = 0;

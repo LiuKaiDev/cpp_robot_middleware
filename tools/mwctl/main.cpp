@@ -59,6 +59,7 @@ int run(int argc, char** argv) {
                   << "topic_name: " << topic.topic_name << '\n'
                   << "type_name: " << topic.type_name << '\n'
                   << "type_hash: " << topic.type_hash << '\n'
+                  << "transport: " << mw::transportTypeName(topic.transport) << '\n'
                   << "max_message_size: " << topic.max_message_size << '\n'
                   << "publishers: " << topic.publisher_count << '\n'
                   << "subscribers: " << topic.subscriber_count << '\n';

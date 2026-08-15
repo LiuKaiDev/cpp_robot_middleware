@@ -50,8 +50,10 @@ detail::PayloadWriter endpointBody(const EndpointResult& result) {
 detail::PayloadWriter discoveryBody(const DiscoveryResult& result) {
     detail::PayloadWriter writer;
     writer.writeU64(result.subscriber_endpoint_id);
+    writer.writeU64(result.topic_id);
     writer.writeString(result.data_socket_path);
     writer.writeU64(result.max_message_size);
+    writer.writeU16(static_cast<std::uint16_t>(result.transport));
     return writer;
 }
 
@@ -256,12 +258,14 @@ struct RegistryServer::Impl {
         case detail::Opcode::AdvertiseTopic: {
             std::uint64_t node_id = 0;
             std::uint64_t max_message_size = 0;
+            std::uint16_t transport = 0;
             std::string topic_name;
             std::string type_name;
             std::string type_hash;
             if (!reader.readU64(node_id) || !reader.readString(topic_name) ||
                 !reader.readString(type_name) || !reader.readString(type_hash) ||
-                !reader.readU64(max_message_size) || !reader.empty()) {
+                !reader.readU64(max_message_size) || !reader.readU16(transport) ||
+                !reader.empty()) {
                 queueResponse(fd, header.request_id, ErrorCode::InvalidControlMessage, {});
                 return;
             }
@@ -269,9 +273,9 @@ struct RegistryServer::Impl {
                 queueResponse(fd, header.request_id, ErrorCode::InvalidArgument, {});
                 return;
             }
-            const EndpointResult result =
-                state.advertise(client.connection_id, node_id, topic_name, type_name, type_hash,
-                                static_cast<std::size_t>(max_message_size));
+            const EndpointResult result = state.advertise(
+                client.connection_id, node_id, topic_name, type_name, type_hash,
+                static_cast<std::size_t>(max_message_size), static_cast<TransportType>(transport));
             const auto body = endpointBody(result);
             queueResponse(fd, header.request_id, result.error, body.data());
             return;
@@ -291,6 +295,7 @@ struct RegistryServer::Impl {
         case detail::Opcode::SubscribeTopic: {
             std::uint64_t node_id = 0;
             std::uint64_t max_message_size = 0;
+            std::uint16_t transport = 0;
             std::string topic_name;
             std::string type_name;
             std::string type_hash;
@@ -298,7 +303,7 @@ struct RegistryServer::Impl {
             if (!reader.readU64(node_id) || !reader.readString(topic_name) ||
                 !reader.readString(type_name) || !reader.readString(type_hash) ||
                 !reader.readU64(max_message_size) || !reader.readString(data_socket_path) ||
-                !reader.empty()) {
+                !reader.readU16(transport) || !reader.empty()) {
                 queueResponse(fd, header.request_id, ErrorCode::InvalidControlMessage, {});
                 return;
             }
@@ -308,7 +313,8 @@ struct RegistryServer::Impl {
             }
             const EndpointResult result =
                 state.subscribe(client.connection_id, node_id, topic_name, type_name, type_hash,
-                                static_cast<std::size_t>(max_message_size), data_socket_path);
+                                static_cast<std::size_t>(max_message_size), data_socket_path,
+                                static_cast<TransportType>(transport));
             const auto body = endpointBody(result);
             queueResponse(fd, header.request_id, result.error, body.data());
             if (result.error == ErrorCode::Ok) {
@@ -391,6 +397,7 @@ struct RegistryServer::Impl {
             body.writeString(topic->topic_name);
             body.writeString(topic->type_name);
             body.writeString(topic->type_hash);
+            body.writeU16(static_cast<std::uint16_t>(topic->transport));
             body.writeU64(topic->max_message_size);
             body.writeU64(topic->publisher_endpoint.has_value() ? 1U : 0U);
             body.writeU64(topic->subscriber_endpoints.size());

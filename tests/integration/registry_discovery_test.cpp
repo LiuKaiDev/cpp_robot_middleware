@@ -332,6 +332,7 @@ TEST(RegistryDiscoveryIntegrationTest, MwctlQueriesLiveRegistry) {
     EXPECT_EQ(info.exit_code, 0);
     EXPECT_NE(info.output.find("type_name: Image"), std::string::npos);
     EXPECT_NE(info.output.find("type_hash: image-v1"), std::string::npos);
+    EXPECT_NE(info.output.find("transport: uds"), std::string::npos);
     EXPECT_NE(info.output.find("publishers: 1"), std::string::npos);
     EXPECT_NE(info.output.find("subscribers: 1"), std::string::npos);
 }

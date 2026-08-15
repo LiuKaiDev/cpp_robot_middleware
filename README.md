@@ -13,18 +13,18 @@ provides a focused environment for studying the IPC, resource-lifetime, backpres
 performance tradeoffs beneath a robotics communication API without implementing a full DDS or
 ROS2 RMW stack.
 
-## Current Status: Phase 2 - Registry / Discovery / mwctl
+## Current Status: Phase 3 - Shared Memory Data Plane V1
 
-Phase 2 adds a Linux-local registry daemon, explicit control protocol, node and endpoint identity,
-type-compatible topic matching, startup-order-independent discovery, and the `mwctl` inspection
-tool. Payloads still use the copied Phase 1 UDS frame transport; direct UDS mode remains available
-as the baseline.
+Phase 3 adds a selectable POSIX shared-memory payload transport while preserving the copied Phase 1
+UDS transport as an independent baseline. The registry coordinates transport metadata and endpoint
+discovery; publisher-to-subscriber UDS carries a bounded SHM locator and ACK, while business payload
+bytes travel through the mapped shared-memory object.
 
 ## Architecture Direction
 
-The architecture separates the `mw_registryd` UDS control plane from the direct Publisher to
-Subscriber data socket. The Phase 1 UDS path remains the Phase 2 data plane and a benchmark
-baseline for later transports. The core library remains independent of ROS2.
+The architecture separates the `mw_registryd` UDS control plane from publisher-to-subscriber data
+transfer. Registry mode selects either copied UDS payload frames or the SHM V1 path. Direct mode
+retains the Phase 1 UDS baseline. The core library remains independent of ROS2.
 
 ## Implemented
 
@@ -38,6 +38,13 @@ baseline for later transports. The core library remains independent of ROS2.
 - Exact `type_name` plus `type_hash` compatibility and one-active-publisher enforcement
 - Publisher-first and subscriber-first endpoint discovery
 - `mwctl node list`, `topic list`, and `topic info`
+- `TransportType::UnixDomainSocket` and `TransportType::SharedMemory`
+- Registry transport compatibility checks and SHM discovery metadata
+- Move-only `SharedMemoryRegion` ownership for `shm_open`, `ftruncate`, `mmap`, and `munmap`
+- One POSIX SHM object per in-flight SHM message
+- Fixed-width, explicitly encoded SHM segment header
+- Fixed 248-byte UDS locator notification and fixed 16-byte cleanup ACK
+- Publisher-owned normal-path `shm_unlink` after subscriber validation and copy
 - Fixed 24-byte frame header plus copied payload
 - Strict sequence and monotonic publish timestamp metadata
 - Empty, small, and large payload support up to the configured bound
@@ -74,6 +81,7 @@ Start the subscriber in either order relative to the publisher:
 ./build/bin/mw_ping_subscriber \
   --registry /tmp/mw_registry.sock \
   --socket /tmp/mw_ping.sock \
+  --transport shm \
   --count 10 \
   --size 64
 ```
@@ -84,6 +92,7 @@ In another terminal, run the publisher:
 ./build/bin/mw_ping_publisher \
   --registry /tmp/mw_registry.sock \
   --socket /tmp/mw_ping.sock \
+  --transport shm \
   --count 10 \
   --size 64
 ```
@@ -96,8 +105,10 @@ Inspect the live registry with:
 ./build/bin/mwctl topic info /ping
 ```
 
-See [docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md) for discovery and control protocol details, and
-[docs/UDS_BASELINE.md](docs/UDS_BASELINE.md) for the copied-payload data-plane baseline.
+Use `--transport uds` for the registry-discovered copied-payload baseline; omit `--registry` for
+direct UDS mode. See [docs/DATA_PLANE.md](docs/DATA_PLANE.md) for both payload paths,
+[docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md) for discovery, and
+[docs/UDS_BASELINE.md](docs/UDS_BASELINE.md) for the original baseline.
 
 ## Install
 
@@ -143,8 +154,15 @@ target_link_libraries(example PRIVATE mw::mw_core)
 
 - Discovery currently selects one subscriber for the Phase 1 one-to-one copied-payload path; later
   phases add multi-subscriber payload lifecycle and fan-out.
-- No shared memory, memory pool, subscriber queue, backpressure, or loaned-sample API exists.
+- SHM V1 dynamically creates and maps one object per in-flight message; no memory pool or reusable
+  chunk lifecycle exists.
+- Discovery still selects one subscriber. There is no multi-subscriber payload sharing, reference
+  counting, subscriber queue, backpressure policy, or loaned-sample API.
 - No heartbeat, crash detection/recovery, ROS2 adapter, or benchmark framework exists.
 - Registry requests are synchronous and are not multiplexed across application threads.
 - The UDS path copies payload data through kernel socket buffers and is not zero-copy.
+- The SHM path copies the application buffer into SHM and copies the mapping into the owning
+  `ReceivedMessage`; it is not zero-copy.
+- Clean completion and normal disconnect paths unlink publisher-owned SHM objects. Crash-time
+  orphan reclamation after `SIGKILL` is deferred to Phase 6.
 - An unclean subscriber exit can leave a stale socket pathname that must be removed manually.
