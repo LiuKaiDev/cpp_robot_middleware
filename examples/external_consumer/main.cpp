@@ -1,9 +1,16 @@
+#include <mw/config.hpp>
+#include <mw/context.hpp>
 #include <mw/version.hpp>
 
 #include <iostream>
 #include <string_view>
 
 int main() {
+    const mw::Context context{"external_consumer"};
+    const mw::PublisherConfig config{};
+    (void)context;
+    (void)config;
+
     constexpr std::string_view expected_version{"0.1.0"};
     const std::string_view installed_version{mw::version()};
 

@@ -1,4 +1,13 @@
-add_library(mw_core SHARED src/version.cpp)
+add_library(
+    mw_core SHARED
+    src/context.cpp
+    src/detail/frame_protocol.cpp
+    src/detail/socket_io.cpp
+    src/detail/unix_socket.cpp
+    src/publisher.cpp
+    src/subscriber.cpp
+    src/version.cpp
+)
 add_library(mw::mw_core ALIAS mw_core)
 
 target_compile_features(mw_core PUBLIC cxx_std_17)
@@ -15,6 +24,8 @@ target_include_directories(
     PUBLIC
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
         "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+    PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 
 target_compile_options(

@@ -13,18 +13,31 @@ provides a focused environment for studying the IPC, resource-lifetime, backpres
 performance tradeoffs beneath a robotics communication API without implementing a full DDS or
 ROS2 RMW stack.
 
-## Current Status: Phase 0
+## Current Status: Phase 1 - Unix Domain Socket Pub/Sub Baseline
 
-Phase 0 provides the C++17 project skeleton, the shared `mw_core` library, a minimal version API,
-CTest integration, install/export packaging, and an external package consumer. No publish/subscribe
-transport is implemented yet.
+Phase 1 provides a functional, copied-payload UDS baseline for one publisher, one subscriber, and
+one explicitly configured topic on one Linux host. It adds the public Context/Publisher/Subscriber
+API, a fixed frame protocol, per-publisher sequence numbers, monotonic publish timestamps, bounded
+payload validation, timeout waits, clean disconnect handling, and subscriber-side reconnect.
 
 ## Architecture Direction
 
-The planned architecture separates a Unix Domain Socket control plane from a shared-memory data
-plane. These runtime components are architectural direction only and are not implemented in Phase
-0. The core library will remain independent of ROS2; a later adapter layer will provide ROS2
-integration.
+The final architecture separates a Unix Domain Socket control plane from a shared-memory data plane.
+The Phase 1 UDS path is a deliberately simple data-plane baseline; it does not implement the later
+registry control plane or shared-memory transport. The core library remains independent of ROS2.
+
+## Implemented
+
+- C++17 `mw_core` shared library with install/export packaging
+- `Context`, move-only `Publisher`, and move-only `Subscriber`
+- Explicit Unix socket path configuration
+- One publisher / one subscriber / one topic UDS transport
+- Fixed 24-byte frame header plus copied payload
+- Strict sequence and monotonic publish timestamp metadata
+- Empty, small, and large payload support up to the configured bound
+- Partial read/write and `EINTR` handling
+- Timeout, invalid-frame, disconnect, and subscriber reconnect behavior
+- Unit, in-process integration, and cross-process integration tests
 
 ## Build
 
@@ -40,6 +53,28 @@ The build produces `libmw_core.so`.
 ```bash
 ctest --test-dir build --output-on-failure
 ```
+
+## UDS Quick Start
+
+Start the subscriber:
+
+```bash
+./build/bin/mw_ping_subscriber \
+  --socket /tmp/mw_phase1.sock \
+  --count 10 \
+  --size 64
+```
+
+In another terminal, run the publisher:
+
+```bash
+./build/bin/mw_ping_publisher \
+  --socket /tmp/mw_phase1.sock \
+  --count 10 \
+  --size 64
+```
+
+See [docs/UDS_BASELINE.md](docs/UDS_BASELINE.md) for the wire format, ownership, and failure model.
 
 ## Install
 
@@ -83,8 +118,10 @@ target_link_libraries(example PRIVATE mw::mw_core)
 
 ## Known Limitations
 
-- No Publisher or Subscriber API exists yet.
-- No UDS transport, registry, discovery, or command-line tooling exists yet.
-- No shared-memory data plane or runtime resource management exists yet.
-- No ROS2 adapter or benchmark results exist yet.
-- Version 1 will target one active publisher per topic and multiple subscribers on one Linux host.
+- The Phase 1 baseline supports only one publisher, one subscriber, and one explicitly configured
+  topic; registry-based discovery is not implemented.
+- No shared memory, memory pool, subscriber queue, backpressure, or loaned-sample API exists yet.
+- No heartbeat, crash recovery, ROS2 adapter, benchmark framework, or proven performance result
+  exists yet.
+- The UDS path copies payload data through kernel socket buffers and is not zero-copy.
+- An unclean subscriber exit can leave a stale socket pathname that must be removed manually.

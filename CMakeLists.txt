@@ -7,10 +7,31 @@ project(
     LANGUAGES CXX
 )
 
+option(ENABLE_ASAN "Enable AddressSanitizer" OFF)
+option(ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
+
+if(ENABLE_ASAN OR ENABLE_UBSAN)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        message(FATAL_ERROR "The sanitizer options require GCC or Clang")
+    endif()
+
+    set(MW_SANITIZER_FLAGS "")
+    if(ENABLE_ASAN)
+        list(APPEND MW_SANITIZER_FLAGS -fsanitize=address)
+    endif()
+    if(ENABLE_UBSAN)
+        list(APPEND MW_SANITIZER_FLAGS -fsanitize=undefined)
+    endif()
+
+    add_compile_options(${MW_SANITIZER_FLAGS} -fno-omit-frame-pointer)
+    add_link_options(${MW_SANITIZER_FLAGS})
+endif()
+
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 add_subdirectory(middleware)
+add_subdirectory(examples)
 
 include(CTest)
 if(BUILD_TESTING)
