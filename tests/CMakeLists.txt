@@ -23,6 +23,25 @@ include(GoogleTest)
 
 mw_add_gtest(mw_version_test version_test.cpp)
 mw_add_gtest(mw_frame_protocol_test unit/frame_protocol_test.cpp)
+mw_add_gtest(mw_control_protocol_test unit/control_protocol_test.cpp)
+mw_add_gtest(mw_registry_state_test unit/registry_state_test.cpp mw_registry_support)
 mw_add_gtest(mw_socket_io_test unit/socket_io_test.cpp)
 mw_add_gtest(mw_pubsub_test integration/pubsub_test.cpp Threads::Threads)
 mw_add_gtest(mw_process_pubsub_test integration/process_pubsub_test.cpp)
+mw_add_gtest(mw_registry_discovery_test integration/registry_discovery_test.cpp
+             mw_registry_support Threads::Threads)
+target_compile_definitions(
+    mw_registry_discovery_test
+    PRIVATE
+        MW_REGISTRYD_PATH="$<TARGET_FILE:mw_registryd>"
+        MW_MWCTL_PATH="$<TARGET_FILE:mwctl>"
+        MW_PING_PUBLISHER_PATH="$<TARGET_FILE:mw_ping_publisher>"
+        MW_PING_SUBSCRIBER_PATH="$<TARGET_FILE:mw_ping_subscriber>"
+)
+add_dependencies(
+    mw_registry_discovery_test
+    mw_registryd
+    mwctl
+    mw_ping_publisher
+    mw_ping_subscriber
+)

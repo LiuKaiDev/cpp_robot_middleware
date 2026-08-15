@@ -36,7 +36,7 @@ UniqueFd createSocket(int flags) {
 
 } // namespace
 
-UnixListener UnixListener::create(const std::string& socket_path) {
+UnixListener UnixListener::create(const std::string& socket_path, int backlog) {
     const sockaddr_un address = makeAddress(socket_path);
     UniqueFd fd = createSocket(SOCK_NONBLOCK);
 
@@ -44,7 +44,12 @@ UnixListener UnixListener::create(const std::string& socket_path) {
         throw std::system_error(errno, std::generic_category(), "bind(" + socket_path + ")");
     }
 
-    if (::listen(fd.get(), 1) < 0) {
+    if (backlog <= 0) {
+        ::unlink(socket_path.c_str());
+        throw std::invalid_argument("Unix socket listen backlog must be positive");
+    }
+
+    if (::listen(fd.get(), backlog) < 0) {
         const int error_number = errno;
         ::unlink(socket_path.c_str());
         throw std::system_error(error_number, std::generic_category(),

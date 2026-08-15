@@ -12,7 +12,11 @@
 namespace mw::examples {
 
 struct PingOptions {
+    std::string registry_path;
     std::string socket_path{"/tmp/cpp_robot_middleware_ping.sock"};
+    std::string topic{"/ping"};
+    std::string type_name{"mw.examples.Ping"};
+    std::string type_hash{"mw.examples.Ping.v1"};
     std::size_t count{1};
     std::size_t payload_size{64};
     std::chrono::milliseconds timeout{5000};
@@ -36,8 +40,16 @@ inline PingOptions parseOptions(int argc, char** argv) {
 
         const std::string_view name{argv[index]};
         const std::string_view value{argv[index + 1]};
-        if (name == "--socket") {
+        if (name == "--registry") {
+            options.registry_path = value;
+        } else if (name == "--socket") {
             options.socket_path = value;
+        } else if (name == "--topic") {
+            options.topic = value;
+        } else if (name == "--type-name") {
+            options.type_name = value;
+        } else if (name == "--type-hash") {
+            options.type_hash = value;
         } else if (name == "--count") {
             options.count = parseSize(value, name);
         } else if (name == "--size") {
@@ -52,6 +64,9 @@ inline PingOptions parseOptions(int argc, char** argv) {
 
     if (options.socket_path.empty()) {
         throw std::invalid_argument("--socket must not be empty");
+    }
+    if (options.topic.empty() || options.type_name.empty() || options.type_hash.empty()) {
+        throw std::invalid_argument("topic and type values must not be empty");
     }
     if (options.count == 0U) {
         throw std::invalid_argument("--count must be greater than zero");

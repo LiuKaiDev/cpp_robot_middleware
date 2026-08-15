@@ -3,6 +3,7 @@
 #include <mw/config.hpp>
 
 #include "detail/frame_protocol.hpp"
+#include "detail/registry_client.hpp"
 #include "detail/unique_fd.hpp"
 #include "detail/unix_socket.hpp"
 
@@ -22,12 +23,15 @@
 namespace mw {
 namespace {
 
-void validateConfig(const SubscriberConfig& config) {
+void validateConfig(const SubscriberConfig& config, bool registry_mode) {
     if (config.socket_path.empty()) {
         throw std::invalid_argument("subscriber socket path must not be empty");
     }
     if (config.max_message_size > std::numeric_limits<std::uint32_t>::max()) {
         throw std::invalid_argument("subscriber max_message_size exceeds the frame protocol");
+    }
+    if (registry_mode && (config.type_name.empty() || config.type_hash.empty())) {
+        throw std::invalid_argument("subscriber type name and hash must not be empty");
     }
 }
 
@@ -70,6 +74,20 @@ struct Subscriber::Impl {
     Impl(std::string topic_value, const SubscriberConfig& config_value)
         : topic(std::move(topic_value)), config(config_value),
           listener(detail::UnixListener::create(config.socket_path)) {}
+
+    Impl(std::string topic_value, const SubscriberConfig& config_value,
+         std::shared_ptr<detail::RegistrySession> registry_session_value)
+        : topic(std::move(topic_value)), config(config_value),
+          listener(detail::UnixListener::create(config.socket_path)),
+          registry_session(std::move(registry_session_value)) {
+        endpoint_id = registry_session->subscribe(topic, config).endpoint_id;
+    }
+
+    ~Impl() {
+        if (registry_session && endpoint_id != 0U) {
+            registry_session->unsubscribe(endpoint_id);
+        }
+    }
 
     ReceiveResult receiveAvailable() {
         while (true) {
@@ -161,11 +179,19 @@ struct Subscriber::Impl {
     std::vector<std::uint8_t> payload;
     std::size_t payload_bytes{0};
     ErrorCode last_error{ErrorCode::Ok};
+    std::shared_ptr<detail::RegistrySession> registry_session;
+    std::uint64_t endpoint_id{0};
 };
 
 Subscriber::Subscriber(std::string topic, const SubscriberConfig& config) {
-    validateConfig(config);
+    validateConfig(config, false);
     impl_ = std::make_unique<Impl>(std::move(topic), config);
+}
+
+Subscriber::Subscriber(std::string topic, const SubscriberConfig& config,
+                       std::shared_ptr<detail::RegistrySession> registry_session) {
+    validateConfig(config, true);
+    impl_ = std::make_unique<Impl>(std::move(topic), config, std::move(registry_session));
 }
 
 Subscriber::~Subscriber() = default;

@@ -31,6 +31,8 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 add_subdirectory(middleware)
+add_subdirectory(registry)
+add_subdirectory(tools/mwctl)
 add_subdirectory(examples)
 
 include(CTest)

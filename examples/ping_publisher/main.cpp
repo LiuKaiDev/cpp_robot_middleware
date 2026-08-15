@@ -19,11 +19,16 @@ int main(int argc, char** argv) {
             return 2;
         }
 
-        mw::Context context{"ping_publisher"};
+        mw::Context context =
+            options.registry_path.empty()
+                ? mw::Context{"ping_publisher"}
+                : mw::Context{"ping_publisher", mw::RegistryConfig{options.registry_path}};
         mw::PublisherConfig config;
         config.socket_path = options.socket_path;
         config.max_message_size = std::max(mw::kDefaultMaxMessageSize, options.payload_size);
-        auto publisher = context.createPublisher("/ping", config);
+        config.type_name = options.type_name;
+        config.type_hash = options.type_hash;
+        auto publisher = context.createPublisher(options.topic, config);
 
         std::vector<std::uint8_t> payload(options.payload_size);
         std::size_t sent = 0;

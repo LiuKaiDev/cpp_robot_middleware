@@ -9,6 +9,9 @@
 namespace mw {
 
 struct PublisherConfig;
+namespace detail {
+class RegistrySession;
+}
 
 class Publisher {
   public:
@@ -27,6 +30,8 @@ class Publisher {
     struct Impl;
 
     Publisher(std::string topic, const PublisherConfig& config);
+    Publisher(std::string topic, const PublisherConfig& config,
+              std::shared_ptr<detail::RegistrySession> registry_session);
 
     std::unique_ptr<Impl> impl_;
 };

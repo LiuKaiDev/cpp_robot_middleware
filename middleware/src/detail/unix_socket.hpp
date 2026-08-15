@@ -9,7 +9,7 @@ namespace mw::detail {
 
 class UnixListener {
   public:
-    static UnixListener create(const std::string& socket_path);
+    static UnixListener create(const std::string& socket_path, int backlog = 1);
 
     ~UnixListener();
 

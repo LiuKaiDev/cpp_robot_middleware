@@ -18,11 +18,16 @@ int main(int argc, char** argv) {
             return 2;
         }
 
-        mw::Context context{"ping_subscriber"};
+        mw::Context context =
+            options.registry_path.empty()
+                ? mw::Context{"ping_subscriber"}
+                : mw::Context{"ping_subscriber", mw::RegistryConfig{options.registry_path}};
         mw::SubscriberConfig config;
         config.socket_path = options.socket_path;
         config.max_message_size = std::max(mw::kDefaultMaxMessageSize, options.payload_size);
-        auto subscriber = context.createSubscriber("/ping", config);
+        config.type_name = options.type_name;
+        config.type_hash = options.type_hash;
+        auto subscriber = context.createSubscriber(options.topic, config);
 
         std::size_t received = 0;
         std::size_t sequence_errors = 0;

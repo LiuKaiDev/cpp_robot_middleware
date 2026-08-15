@@ -13,25 +13,31 @@ provides a focused environment for studying the IPC, resource-lifetime, backpres
 performance tradeoffs beneath a robotics communication API without implementing a full DDS or
 ROS2 RMW stack.
 
-## Current Status: Phase 1 - Unix Domain Socket Pub/Sub Baseline
+## Current Status: Phase 2 - Registry / Discovery / mwctl
 
-Phase 1 provides a functional, copied-payload UDS baseline for one publisher, one subscriber, and
-one explicitly configured topic on one Linux host. It adds the public Context/Publisher/Subscriber
-API, a fixed frame protocol, per-publisher sequence numbers, monotonic publish timestamps, bounded
-payload validation, timeout waits, clean disconnect handling, and subscriber-side reconnect.
+Phase 2 adds a Linux-local registry daemon, explicit control protocol, node and endpoint identity,
+type-compatible topic matching, startup-order-independent discovery, and the `mwctl` inspection
+tool. Payloads still use the copied Phase 1 UDS frame transport; direct UDS mode remains available
+as the baseline.
 
 ## Architecture Direction
 
-The final architecture separates a Unix Domain Socket control plane from a shared-memory data plane.
-The Phase 1 UDS path is a deliberately simple data-plane baseline; it does not implement the later
-registry control plane or shared-memory transport. The core library remains independent of ROS2.
+The architecture separates the `mw_registryd` UDS control plane from the direct Publisher to
+Subscriber data socket. The Phase 1 UDS path remains the Phase 2 data plane and a benchmark
+baseline for later transports. The core library remains independent of ROS2.
 
 ## Implemented
 
 - C++17 `mw_core` shared library with install/export packaging
 - `Context`, move-only `Publisher`, and move-only `Subscriber`
-- Explicit Unix socket path configuration
-- One publisher / one subscriber / one topic UDS transport
+- Direct UDS mode and explicit registry-discovery mode
+- `mw_registryd` single-threaded `epoll` control server
+- Node registration and clean unregistration
+- Topic advertisement/subscription and clean endpoint removal
+- `node_id`, `topic_id`, and `endpoint_id` assignment
+- Exact `type_name` plus `type_hash` compatibility and one-active-publisher enforcement
+- Publisher-first and subscriber-first endpoint discovery
+- `mwctl node list`, `topic list`, and `topic info`
 - Fixed 24-byte frame header plus copied payload
 - Strict sequence and monotonic publish timestamp metadata
 - Empty, small, and large payload support up to the configured bound
@@ -46,7 +52,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build -j
 ```
 
-The build produces `libmw_core.so`.
+The build produces `libmw_core.so`, `mw_registryd`, `mwctl`, and the ping demos.
 
 ## Test
 
@@ -54,13 +60,20 @@ The build produces `libmw_core.so`.
 ctest --test-dir build --output-on-failure
 ```
 
-## UDS Quick Start
+## Registry Quick Start
 
-Start the subscriber:
+Start the registry:
+
+```bash
+./build/bin/mw_registryd
+```
+
+Start the subscriber in either order relative to the publisher:
 
 ```bash
 ./build/bin/mw_ping_subscriber \
-  --socket /tmp/mw_phase1.sock \
+  --registry /tmp/mw_registry.sock \
+  --socket /tmp/mw_ping.sock \
   --count 10 \
   --size 64
 ```
@@ -69,12 +82,22 @@ In another terminal, run the publisher:
 
 ```bash
 ./build/bin/mw_ping_publisher \
-  --socket /tmp/mw_phase1.sock \
+  --registry /tmp/mw_registry.sock \
+  --socket /tmp/mw_ping.sock \
   --count 10 \
   --size 64
 ```
 
-See [docs/UDS_BASELINE.md](docs/UDS_BASELINE.md) for the wire format, ownership, and failure model.
+Inspect the live registry with:
+
+```bash
+./build/bin/mwctl node list
+./build/bin/mwctl topic list
+./build/bin/mwctl topic info /ping
+```
+
+See [docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md) for discovery and control protocol details, and
+[docs/UDS_BASELINE.md](docs/UDS_BASELINE.md) for the copied-payload data-plane baseline.
 
 ## Install
 
@@ -118,10 +141,10 @@ target_link_libraries(example PRIVATE mw::mw_core)
 
 ## Known Limitations
 
-- The Phase 1 baseline supports only one publisher, one subscriber, and one explicitly configured
-  topic; registry-based discovery is not implemented.
-- No shared memory, memory pool, subscriber queue, backpressure, or loaned-sample API exists yet.
-- No heartbeat, crash recovery, ROS2 adapter, benchmark framework, or proven performance result
-  exists yet.
+- Discovery currently selects one subscriber for the Phase 1 one-to-one copied-payload path; later
+  phases add multi-subscriber payload lifecycle and fan-out.
+- No shared memory, memory pool, subscriber queue, backpressure, or loaned-sample API exists.
+- No heartbeat, crash detection/recovery, ROS2 adapter, or benchmark framework exists.
+- Registry requests are synchronous and are not multiplexed across application threads.
 - The UDS path copies payload data through kernel socket buffers and is not zero-copy.
 - An unclean subscriber exit can leave a stale socket pathname that must be removed manually.

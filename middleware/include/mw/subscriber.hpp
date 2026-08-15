@@ -11,6 +11,9 @@
 namespace mw {
 
 struct SubscriberConfig;
+namespace detail {
+class RegistrySession;
+}
 
 class Subscriber {
   public:
@@ -32,6 +35,8 @@ class Subscriber {
     struct Impl;
 
     Subscriber(std::string topic, const SubscriberConfig& config);
+    Subscriber(std::string topic, const SubscriberConfig& config,
+               std::shared_ptr<detail::RegistrySession> registry_session);
 
     std::unique_ptr<Impl> impl_;
 };

@@ -1,7 +1,9 @@
 add_library(
     mw_core SHARED
     src/context.cpp
+    src/detail/control_protocol.cpp
     src/detail/frame_protocol.cpp
+    src/detail/registry_client.cpp
     src/detail/socket_io.cpp
     src/detail/unix_socket.cpp
     src/publisher.cpp
