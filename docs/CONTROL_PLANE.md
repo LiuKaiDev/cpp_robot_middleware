@@ -1,10 +1,9 @@
 # Registry Control Plane
 
-## Scope And Separation
+## 范围与分离
 
-The final v1 control plane provides registry-based discovery, transport/pool/queue metadata,
-liveness sessions, read-only inspection, and exact crash cleanup on one Linux host while keeping
-control and payload responsibilities separate:
+最终 v1 Control Plane 在单台 Linux 主机上提供基于 Registry 的 Discovery、Transport/Pool/Queue
+metadata、Liveness session、只读检查和精确的崩溃清理，同时保持 Control 与 payload 职责分离：
 
 ```text
 Context / Publisher / Subscriber / mwctl
@@ -17,31 +16,30 @@ Publisher --------------------------> Subscriber
        UDS payload frame, or queue wake/release UDS
 ```
 
-`mw_registryd` stores identities and endpoint metadata. It does not proxy or copy user payloads.
-The default control pathname is `/tmp/mw_registry.sock`; `RegistryConfig`, `mw_registryd --socket`,
-and `mwctl --registry` can select another path.
+`mw_registryd` 保存 identity 和 Endpoint metadata，不代理也不复制用户 payload。默认 Control
+path 为 `/tmp/mw_registry.sock`；可通过 `RegistryConfig`、`mw_registryd --socket` 或
+`mwctl --registry` 选择其他路径。
 
-## Registry Architecture
+## Registry 架构
 
-- `ControlProtocol` explicitly encodes headers, typed payload fields, and response envelopes.
-- `RegistryState` owns the node, topic, publisher, and subscriber maps and applies matching rules.
-  It has no socket I/O.
-- `RegistryServer` owns the listening socket, accepted control connections, `epoll` descriptor,
-  partial input/output buffers, pending discovery requests, and `RegistryState`.
-- `RegistryClient` sends synchronous correlated requests for middleware contexts and `mwctl`.
-- A registry-enabled `Context` owns a shared `RegistrySession`; endpoints retain that session until
-  their own destruction, so endpoint cleanup remains possible if the original Context is gone.
-- Each session owns a second control connection and one RAII heartbeat thread. The primary
-  connection remains available for synchronous calls while the heartbeat connection periodically
-  renews the node lease and receives peer-death events.
+- `ControlProtocol` 显式编码 Header、带类型的 payload field 和 Response envelope。
+- `RegistryState` 拥有 Node、Topic、Publisher 和 Subscriber map，并执行匹配规则，不包含
+  Socket I/O。
+- `RegistryServer` 拥有 listening socket、已接受的 Control connection、`epoll` descriptor、
+  partial input/output buffer、pending Discovery request 和 `RegistryState`。
+- `RegistryClient` 为 Middleware Context 和 `mwctl` 发送同步、可关联的 Request。
+- 启用 Registry 的 `Context` 拥有一个共享 `RegistrySession`；Endpoint 会保留该 Session
+  直到自身析构，因此原始 Context 消失后仍可清理 Endpoint。
+- 每个 Session 拥有第二条 Control connection 和一个 RAII Heartbeat thread。Primary connection
+  继续处理同步调用，Heartbeat connection 定期续租 Node lease 并接收 Peer-death event。
 
-The daemon uses one event-loop thread. Applications have one control-only heartbeat thread; all
-data-plane work, discovery, publish, receive, queue repair, and reference repair remains on caller
-threads.
+Daemon 使用一个 event-loop thread。应用拥有一个仅用于 Control 的 Heartbeat thread；所有
+Data Plane、Discovery、publish、receive、Queue repair 和 reference repair 都在 Caller thread
+上执行。
 
-## Control Socket And Header
+## Control Socket 与 Header
 
-The control plane uses `AF_UNIX`, `SOCK_STREAM`. Each frame begins with this logical 16-byte header:
+Control Plane 使用 `AF_UNIX`、`SOCK_STREAM`。每个 frame 以如下逻辑 16-byte Header 开头：
 
 | Offset | Size | Field | Encoding |
 | --- | ---: | --- | --- |
@@ -51,68 +49,67 @@ The control plane uses `AF_UNIX`, `SOCK_STREAM`. Each frame begins with this log
 | 8 | 4 | request ID | big-endian |
 | 12 | 4 | payload size | big-endian |
 
-Version 5 retains pool and subscriber queue descriptors and adds node session IDs, heartbeat attach
-and renewal, liveness state, and bounded peer-death events. Resolve
-returns a counted list of all compatible subscriber endpoint IDs, socket paths, size bounds, and
-queue descriptors. The header is encoded field by field; a C++ structure is never sent as the wire
-ABI.
-Payloads are bounded to 64 KiB before allocation. The server retains incomplete stream input until
-a complete header and declared payload are present. Bad magic, unsupported version, oversized
-payload, unknown opcode, malformed payload, and truncated connections cannot dispatch a partial
-state change.
+Version 5 保留 Pool 与 Subscriber Queue descriptor，并加入 Node session ID、Heartbeat attach/
+renewal、Liveness state 和有界 Peer-death event。Resolve 返回所有兼容 Subscriber 的 Endpoint
+ID、Socket path、Size bound 和 Queue descriptor 的计数列表。Header 按 Field 逐一编码，绝不把
+C++ struct 作为 wire ABI 发送。
 
-## Opcodes And Responses
+在分配前，Payload 被限制为 64 KiB。Server 会保留不完整 stream input，直到完整 Header 和声明
+的 payload 均已到达。错误 magic、不支持的 version、oversized payload、未知 opcode、malformed
+payload 和 truncated connection 都不能触发部分状态变更。
 
-The current protocol defines these operations:
+## Opcode 与 Response
 
-| Opcode | Responsibility |
+当前 Protocol 定义以下 Operation：
+
+| Opcode | 职责 |
 | --- | --- |
-| `REGISTER_NODE` / `UNREGISTER_NODE` | Create or cleanly remove node identity and owned endpoints |
-| `ADVERTISE_TOPIC` / `UNADVERTISE_TOPIC` | Create or remove the one active publisher |
-| `SUBSCRIBE_TOPIC` / `UNSUBSCRIBE_TOPIC` | Create or remove a subscriber data endpoint |
-| `RESOLVE_ENDPOINT` | Return compatible subscriber sockets, queue descriptors, and SHM pool metadata |
-| `LIST_NODES` | Return sorted live registry node records |
-| `LIST_TOPICS` | Return sorted live topic records |
-| `QUERY_TOPIC` | Return type, size, publisher count, and subscriber count |
-| `QUERY_STATS` | Return current object counts and lifetime liveness counters |
-| `ATTACH_HEARTBEAT` | Bind a dedicated connection to one node/session identity |
-| `HEARTBEAT` | Renew the lease and return liveness plus bounded peer-death events |
-| `RESPONSE` | Carry an error code, message, and operation-specific body |
+| `REGISTER_NODE` / `UNREGISTER_NODE` | 创建或正常移除 Node identity 及其 Endpoint |
+| `ADVERTISE_TOPIC` / `UNADVERTISE_TOPIC` | 创建或移除唯一的 active Publisher |
+| `SUBSCRIBE_TOPIC` / `UNSUBSCRIBE_TOPIC` | 创建或移除 Subscriber Data Endpoint |
+| `RESOLVE_ENDPOINT` | 返回兼容的 Subscriber Socket、Queue descriptor 和 SHM Pool metadata |
+| `LIST_NODES` | 返回已排序的活动 Registry Node record |
+| `LIST_TOPICS` | 返回已排序的活动 Topic record |
+| `QUERY_TOPIC` | 返回类型、Size、Publisher 数和 Subscriber 数 |
+| `QUERY_STATS` | 返回当前 object 数量和累计 Liveness counter |
+| `ATTACH_HEARTBEAT` | 将独立 Connection 绑定到一个 Node/Session identity |
+| `HEARTBEAT` | 续租 Lease，并返回 Liveness 和有界 Peer-death event |
+| `RESPONSE` | 携带 Error code、message 和 operation-specific body |
 
-Every request receives the same `request_id` in its response. A response envelope always starts
-with an explicit `ErrorCode` and diagnostic string. The client rejects the wrong opcode, wrong
-request ID, malformed response body, unsupported version, and oversized response.
+每个 Request 的 Response 都带回相同 `request_id`。Response envelope 始终以显式
+`ErrorCode` 和 diagnostic string 开头。Client 会拒绝错误 opcode、错误 Request ID、malformed
+Response body、不支持的 version 和 oversized Response。
 
-## Registry Models
+## Registry Model
 
-A `NodeRecord` contains `node_id`, unique monotonically assigned `session_id`, unique `node_name`,
-primary and heartbeat connection IDs, last monotonic heartbeat time, liveness state, and sets of
-owned publisher/subscriber endpoint IDs. IDs are not reused by the running daemon. Heartbeats must
-match all three of connection binding, node ID, and session ID; PID is not an identity authority.
+`NodeRecord` 包含 `node_id`、唯一且单调分配的 `session_id`、唯一 `node_name`、Primary/
+Heartbeat connection ID、最后一次 monotonic Heartbeat 时间、Liveness state，以及拥有的
+Publisher/Subscriber Endpoint ID set。Daemon 运行期间不会复用 ID。Heartbeat 必须同时匹配
+Connection binding、Node ID 和 Session ID；PID 不具备 identity authority。
 
-A `TopicRecord` contains `topic_id`, name, `type_name`, `type_hash`, `transport_type`, negotiated
-maximum message size, at most one publisher endpoint, and zero or more subscriber endpoints. Empty
-topics are removed during clean endpoint teardown.
+`TopicRecord` 包含 `topic_id`、名称、`type_name`、`type_hash`、`transport_type`、协商后
+的最大消息大小、至多一个 Publisher Endpoint 和零到多个 Subscriber Endpoint。正常拆除
+Endpoint 后，空 Topic 会被移除。
 
-Publisher and subscriber endpoints are distinct records with `endpoint_id`, `node_id`, and
-`topic_id`. A subscriber additionally records its data socket path, message-size bound, and SHM
-queue descriptor. An SHM publisher records its pool descriptor. These values are discovery
-metadata, not control-plane payload data. The registry never maps either SHM object.
+Publisher 和 Subscriber Endpoint 是不同的 record，均包含 `endpoint_id`、`node_id` 和
+`topic_id`。Subscriber 还记录 Data Socket path、消息大小上限和 SHM Queue descriptor；SHM
+Publisher 记录 Pool descriptor。这些值是 Discovery metadata，不是 Control Plane payload data。
+Registry 从不 map 任何一个 SHM object。
 
-## Type Compatibility And Publisher Rule
+## 类型兼容与 Publisher 规则
 
-The registry treats a pair as compatible only when topic name, `type_name`, `type_hash`, and
-`transport_type` all match exactly. It does not understand message fields and does not implement an
-IDL or schema converter. A schema mismatch returns `TypeMismatch`; a UDS/SHM mismatch returns
-`TransportMismatch`; a second active publisher returns `DuplicatePublisher`.
+只有 Topic name、`type_name`、`type_hash` 和 `transport_type` 全部精确匹配时，Registry
+才认为双方兼容。它不了解消息字段，也不实现 IDL 或 Schema converter。Schema mismatch 返回
+`TypeMismatch`；UDS/SHM mismatch 返回 `TransportMismatch`；第二个 active Publisher 返回
+`DuplicatePublisher`。
 
-The state model retains N subscribers. SHM resolution returns all of them with independent queue
-capacities and policies, and establishes one direct metadata UDS per subscriber. The copied direct
-UDS mode continues selecting the first compatible endpoint.
+状态模型保留 N 个 Subscriber。SHM resolve 返回所有 Subscriber 及其独立 Queue capacity/policy，
+并为每个 Subscriber 建立一条直接 metadata UDS。Copied direct UDS mode 继续选择第一个兼容
+Endpoint。
 
-## Discovery Flow
+## Discovery 流程
 
-Subscriber-first startup proceeds as follows:
+Subscriber-first 启动流程如下：
 
 ```text
 Subscriber binds its data socket and creates its SHM queue
@@ -125,27 +122,26 @@ Publisher REGISTER_NODE
   -> send copied UDS data, or enqueue shared-pool handles and send wakes
 ```
 
-For publisher-first startup, `ADVERTISE_TOPIC` succeeds immediately. The first `publish()` sends a
-`RESOLVE_ENDPOINT` request, which the daemon holds when no subscriber exists. A later compatible
-subscription completes that pending request; the original publisher then connects without being
-restarted. Publisher payload sequence numbering begins only after discovery succeeds.
+Publisher-first 启动时，`ADVERTISE_TOPIC` 立即成功。第一次 `publish()` 发送
+`RESOLVE_ENDPOINT`；没有 Subscriber 时，Daemon 会保留该请求。之后兼容的 subscription
+完成 pending Request，原 Publisher 无需重启即可建立连接。Discovery 成功后才开始对 Publisher
+payload sequence 编号。
 
-After an SHM publisher has at least one established connection, it reuses the last compatible
-discovery result for at most 1 ms instead of synchronously resolving on every publication. An empty
-connection set, data-socket/queue failure, disconnect, or peer-death event invalidates that refresh
-window immediately. A subscriber joining while other subscribers remain connected is discovered on
-the next bounded refresh. UDS discovery behavior is unchanged.
+SHM Publisher 至少建立一条 Connection 后，最多复用最后一次兼容 Discovery 结果 1 ms，不再
+每次 publish 都同步 resolve。空 Connection set、Data Socket/Queue 故障、disconnect 或
+Peer-death event 会立即使刷新窗口失效。已有其他 Subscriber 保持连接时加入的新 Subscriber，
+会在下一次有界刷新中被发现。UDS Discovery 行为不变。
 
-Normal endpoint destruction sends unadvertise/unsubscribe. The last session owner unregisters the
-node. Primary control EOF/HUP immediately removes the node and endpoints. If the primary socket
-stays open but heartbeats stop, the monotonic state machine changes ALIVE to SUSPECTED and then
-terminal DEAD. Cleanup closes the companion heartbeat connection, removes exact registry records,
-unlinks registered pool/queue/socket names, repairs/closes dead subscriber queues, and emits peer
-events. Repeating cleanup is harmless because missing records and names are accepted.
+正常析构 Endpoint 会发送 unadvertise/unsubscribe，最后一个 Session Owner 会 unregister Node。
+Primary Control EOF/HUP 会立即移除 Node 和 Endpoint。如果 Primary Socket 保持打开但 Heartbeat
+停止，monotonic state machine 会从 ALIVE 进入 SUSPECTED，最终进入 terminal DEAD。Cleanup
+关闭配套 Heartbeat connection，移除精确 Registry record，unlink 已注册的 Pool/Queue/Socket
+name，repair/close dead Subscriber Queue，并发送 Peer event。重复 Cleanup 可接受缺失的 record
+和 name，因此是安全的。
 
 ## mwctl
 
-`mwctl` is a normal `RegistryClient`; it has no access to daemon memory or side files:
+`mwctl` 是普通 `RegistryClient`，无法访问 Daemon memory 或 side file：
 
 ```bash
 ./build/bin/mwctl node list
@@ -154,25 +150,23 @@ events. Repeating cleanup is harmless because missing records and names are acce
 ./build/bin/mwctl stats
 ```
 
-Use `--registry PATH` before the resource name for a non-default control socket. Node and topic
-lists are sorted by name for deterministic output. `node list` includes `ALIVE` or `SUSPECTED`;
-DEAD records have already been removed. `stats` reports current node, topic, publisher, subscriber,
-and endpoint counts plus lifetime heartbeat-receive, suspected-transition, and dead-node counters.
-It is a bounded registry snapshot, not a general per-publication metrics exporter.
+使用非默认 Control Socket 时，在 resource name 前传入 `--registry PATH`。Node 和 Topic list
+按名称排序，保证输出确定性。`node list` 包含 `ALIVE` 或 `SUSPECTED`；DEAD record 已被移除。
+`stats` 报告当前 Node、Topic、Publisher、Subscriber 和 Endpoint 数量，以及累计 Heartbeat
+receive、suspected-transition 和 dead-node counter。它是有界的 Registry snapshot，不是通用的
+per-publication metrics exporter。
 
-## Known Limitations
+## 已知限制
 
-- Linux single-host UDS only; no distributed discovery.
-- Heartbeat defaults are 250 ms interval, 750 ms suspect timeout, and 1500 ms dead timeout; the
-  daemon CLI and `RegistryConfig` may override them only when interval < suspect < dead.
-- `RegistryClient` application calls are synchronous, and a publisher can wait indefinitely for
-  its first compatible subscriber while its dedicated heartbeat connection remains responsive.
-- Registry sessions are intended to be called serially by an application; concurrent request
-  multiplexing is not implemented.
-- SHM and UDS discovery return all current subscribers; one active publisher fans out one logical
-  message to each independent endpoint.
-- The registry maps a registered dead-subscriber queue only for bounded robust close/repair. It
-  never creates data-plane storage, forwards payloads, or scans namespaces.
-- A heartbeat connection failure ends renewal for that session; automatic registry-daemon
-  reconnection within an existing context is not implemented.
-- Discovery remains single-host and does not implement distributed middleware.
+- 仅支持 Linux 单机 UDS，不支持分布式 Discovery。
+- Heartbeat 默认 interval 为 250 ms，suspect timeout 为 750 ms，dead timeout 为 1500 ms；
+  只有满足 interval < suspect < dead 时，Daemon CLI 和 `RegistryConfig` 才允许覆盖。
+- `RegistryClient` 的应用调用是同步的；Publisher 可以无限等待第一个兼容 Subscriber，同时
+  其独立 Heartbeat connection 仍保持响应。
+- Registry Session 设计为由应用串行调用，不支持并发 Request multiplexing。
+- SHM 和 UDS Discovery 返回所有当前 Subscriber；一个 active Publisher 会把一个逻辑消息
+  fan-out 到每个独立 Endpoint。
+- Registry 仅在执行有界 robust close/repair 时 map 已注册的 dead-Subscriber Queue。它从不创建
+  Data Plane storage、转发 payload 或扫描 namespace。
+- Heartbeat connection 故障会终止该 Session 的续租；现有 Context 不会自动重连 Registry daemon。
+- Discovery 仅限单机，不实现分布式 Middleware。

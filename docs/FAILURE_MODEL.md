@@ -1,34 +1,32 @@
-# Failure Model
+# 故障模型
 
-## Scope
+## 范围
 
-The v1 failure model covers one Linux host, one running `mw_registryd`, one active publisher per
-topic, and N subscribers. It detects middleware process failure through control-socket EOF/HUP or
-a missed heartbeat lease. It repairs registry state and the exact POSIX SHM/socket resources
-registered by that process. Tests use real `SIGKILL` for publisher and subscriber failure.
+v1 Failure Model 覆盖单台 Linux 主机、一个正在运行的 `mw_registryd`、每个 Topic 一个 active
+Publisher 和 N 个 Subscriber。系统通过 Control Socket EOF/HUP 或 missed Heartbeat lease
+检测 Middleware 进程故障，并修复 Registry state 和该进程精确注册的 POSIX SHM/Socket 资源。
+测试通过真实 `SIGKILL` 模拟 Publisher 和 Subscriber 故障。
 
-It does not provide distributed consensus, persistence, retransmission, exactly-once delivery,
-hard real-time deadlines, or recovery from host/kernel failure and arbitrary memory corruption.
+系统不提供分布式共识、Persistence、Retransmission、exactly-once delivery、hard real-time
+deadline，也不从主机/Kernel 故障或任意 Memory corruption 中恢复。
 
-## Heartbeat Architecture
+## Heartbeat 架构
 
-Each registry-enabled `Context` shares one `RegistrySession`. Registration returns a monotonically
-assigned `node_id` and `session_id`. The session then opens a dedicated control connection,
-attaches it to that identity, and starts one RAII heartbeat thread. The primary connection remains
-available for synchronous registration/discovery calls, including a discovery request that waits
-for the first subscriber.
+每个启用 Registry 的 `Context` 共享一个 `RegistrySession`。注册返回单调分配的 `node_id`
+和 `session_id`。随后 Session 打开一条专用 Control connection，attach 到该 identity，并启动
+一个 RAII Heartbeat thread。Primary connection 继续处理同步注册/Discovery 调用，包括等待第一
+个 Subscriber 的 Discovery Request。
 
-The heartbeat carries no payload data. Its response contains the current ALIVE state and bounded,
-deduplicated peer-death metadata. Publisher and subscriber application threads consume those events
-before data-plane operations; the heartbeat thread never changes queues, pools, connection vectors,
-or chunk reference counts.
+Heartbeat 不携带 payload data。Response 包含当前 ALIVE state 和有界、去重的 Peer-death
+metadata。Publisher/Subscriber 应用线程在 Data Plane operation 前消费这些 Event；Heartbeat
+thread 从不修改 Queue、Pool、Connection vector 或 Chunk refcount。
 
-Session destruction signals the thread, wakes its condition variable, joins it, closes the
-heartbeat connection, and normally unregisters through the primary connection.
+Session 析构时会通知 Thread、唤醒 Condition Variable、join Thread、关闭 Heartbeat connection，
+并通过 Primary connection 正常 unregister。
 
 ## Liveness State Machine
 
-The registry uses `std::chrono::steady_clock` only:
+Registry 只使用 `std::chrono::steady_clock`：
 
 ```text
 REGISTER or valid HEARTBEAT
@@ -40,10 +38,10 @@ REGISTER or valid HEARTBEAT
           +----------------------------+----> DEAD -> record removed
 ```
 
-DEAD is terminal for that node/session. A later process must register a new session. A heartbeat
-while SUSPECTED restores ALIVE. `mwctl node list` shows ALIVE/SUSPECTED; DEAD nodes are absent.
+对于该 Node/Session，DEAD 是 terminal state。之后的进程必须注册新 Session。SUSPECTED 状态下
+收到 Heartbeat 会恢复为 ALIVE。`mwctl node list` 显示 ALIVE/SUSPECTED；DEAD Node 已被移除。
 
-Default timing is:
+默认时间参数如下：
 
 | Setting | Default |
 | --- | ---: |
@@ -51,127 +49,118 @@ Default timing is:
 | suspect timeout | 750 ms |
 | dead timeout | 1500 ms |
 
-Configuration must be positive and satisfy interval < suspect < dead. `mw_registryd` accepts
-`--heartbeat-interval-ms`, `--suspect-timeout-ms`, and `--dead-timeout-ms`. Unit tests inject exact
-steady-clock time points instead of sleeping.
+配置必须为正数，且满足 interval < suspect < dead。`mw_registryd` 接受
+`--heartbeat-interval-ms`、`--suspect-timeout-ms` 和 `--dead-timeout-ms`。单元测试注入
+精确 steady-clock time point，而不是 sleep。
 
-## Control Connection Loss
+## Control Connection 丢失
 
-EOF, HUP, or an unrecoverable error on the primary control connection immediately removes its node
-and runs the same idempotent cleanup used by timeout death. It does not wait for the heartbeat
-deadline. Losing only the heartbeat connection detaches it; if the primary remains open but no
-renewal arrives, the normal SUSPECTED/DEAD timeouts apply.
+Primary Control connection 上的 EOF、HUP 或不可恢复错误会立即移除其 Node，并执行与 timeout
+death 相同的幂等 Cleanup，不等待 Heartbeat deadline。仅丢失 Heartbeat connection 时会将其
+detach；如果 Primary 仍打开但没有 Renewal，正常 SUSPECTED/DEAD timeout 继续生效。
 
 ## Session Identity
 
-A heartbeat is accepted only when its connection was attached using the matching node ID and
-unique session ID. Node names remain unique among live records. PID may appear in generated local
-resource names but is not trusted as session identity because operating systems reuse PIDs.
+只有 Heartbeat connection 使用匹配的 Node ID 和唯一 Session ID 完成 attach 后，Heartbeat
+才会被接受。活动 Record 中的 Node name 保持唯一。PID 可以出现在本地生成的 Resource name 中，
+但不能作为 Session identity，因为操作系统会复用 PID。
 
 ## Registry Cleanup
 
-Before removing a dead node, `RegistryState` captures a bounded `DeadNodeCleanup` plan containing:
+移除 dead Node 前，`RegistryState` 会捕获一个有界 `DeadNodeCleanup` plan，其中包含：
 
-- publisher pool descriptors;
-- subscriber queue descriptors and data socket paths;
-- publisher/subscriber endpoint IDs and targeted peer-death events;
-- primary and heartbeat connection identities.
+- Publisher Pool descriptor；
+- Subscriber Queue descriptor 和 Data Socket path；
+- Publisher/Subscriber Endpoint ID 和定向 Peer-death event；
+- Primary 和 Heartbeat connection identity。
 
-The server then removes exact node/topic/endpoint records, cancels affected pending discovery,
-closes the companion control connection, performs resource cleanup, and queues events for live
-peers. It never scans `/dev/shm` or `/tmp`. Repeated cleanup accepts absent records, closed
-descriptors, `ENOENT`, and already-unlinked names.
+随后 Server 移除精确 Node/Topic/Endpoint record，cancel 受影响的 pending Discovery，关闭配套
+Control connection，执行资源 Cleanup，并为活动 Peer 排队 Event。它从不扫描 `/dev/shm` 或
+`/tmp`。重复 Cleanup 可接受缺失 Record、closed descriptor、`ENOENT` 和已经 unlink 的 Name。
 
-## Publisher Crash
+## Publisher 崩溃
 
-For a dead SHM publisher the registry unlinks its exact advertised pool name and sends
-`PublisherDead` with the old pool ID to each surviving subscriber endpoint. A subscriber discards
-only queued handles for that pool, closes the old release channel, drops its old pool mapping, and
-waits for a replacement publisher. If a new pool handle arrived just before old-socket HUP, it stays
-queued until the replacement wake validates and installs its pool descriptor.
+对于 dead SHM Publisher，Registry unlink 精确 advertised Pool name，并向每个存活 Subscriber
+Endpoint 发送带旧 Pool ID 的 `PublisherDead`。Subscriber 只丢弃属于该 Pool 的已排队 Handle，
+关闭旧 Release channel，释放旧 Pool mapping，然后等待 replacement Publisher。如果新 Pool
+Handle 在旧 Socket HUP 前刚刚到达，它会保留在 Queue，直到 replacement Wake 校验并安装对应
+Pool descriptor。
 
-Unlinking a pool name does not invalidate an already-open mapping or live `SampleView`; those local
-objects retain their mappings until destruction. A LOANED chunk dies with its publisher and needs no
-external reference repair because the whole pool is removed.
+Unlink Pool name 不会使已打开 mapping 或活动 `SampleView` 失效；这些本地 Object 会持有
+Mapping 直到析构。LOANED Chunk 随 Publisher 一同消失，无需外部 Reference repair，因为整个
+Pool 都会被移除。
 
-## Subscriber Crash
+## Subscriber 崩溃
 
-For a dead SHM subscriber the registry robust-opens the exact registered queue, repairs the mutex
-when required, marks the queue closed, broadcasts blocked producers, unlinks the queue, and removes
-the registered data socket path only when it is still a socket. It sends `SubscriberDead` to the
-live publisher endpoint. Other subscribers and queues are unchanged.
+对于 dead SHM Subscriber，Registry robust-open 精确注册的 Queue，必要时 repair mutex，将 Queue
+标记为 Closed，broadcast blocked Producer，unlink Queue，并且仅当注册的 Data Socket path 仍是
+Socket 时才移除。随后向活动 Publisher Endpoint 发送 `SubscriberDead`。其他 Subscriber 和
+Queue 不变。
 
 ## Outstanding Reference Tracking
 
-The publisher is the only chunk refcount writer. Each connected endpoint owns a vector of published
-handles that have not yet produced a valid release. Its reserved and enforced maximum is the total
-finite chunk count in the publisher pool, so crash bookkeeping is bounded.
+Publisher 是唯一的 Chunk refcount writer。每个已连接 Endpoint 都拥有一个尚未产生有效 Release
+的 Published Handle vector。其预留并强制执行的上限是 Publisher Pool 中有限 Chunk 总数，因此
+崩溃 bookkeeping 有界。
 
-A normal release validates pool ID, chunk index, generation, and offset, decrements one reference,
-and erases one matching obligation. Drop/timeout/failed-wake paths return tentative references
-immediately. Discovery removal, socket loss, failed dispatch, or `SubscriberDead` drains all
-remaining endpoint obligations exactly once before removing the connection. Endpoint tombstones
-prevent duplicate cleanup until the registry no longer advertises that endpoint.
+正常 Release 会校验 Pool ID、Chunk index、generation 和 offset，递减一个 Reference，并删除
+一个匹配 obligation。Drop/timeout/failed-wake path 立即归还 tentative reference。Discovery
+removal、Socket loss、dispatch 失败或 `SubscriberDead` 会在移除 Connection 前，恰好一次地
+清理所有剩余 Endpoint obligation。Endpoint tombstone 防止重复 Cleanup，直到 Registry 不再
+advertise 该 Endpoint。
 
-This repairs a chunk held by a `SampleView` when its subscriber process is killed. The same chunk
-can return to FREE and be allocated with a new generation. A delayed release for the old generation
-cannot release the new allocation.
+这套机制可以修复 Subscriber 进程被杀死时由 `SampleView` 持有的 Chunk。该 Chunk 可回到 FREE，
+并以新 generation 再次分配；针对旧 generation 的 delayed release 无法释放新 allocation。
 
 ## Robust Process-Shared Mutex
 
-Queue layout version 3 initializes the mutex with both `PTHREAD_PROCESS_SHARED` and
-`PTHREAD_MUTEX_ROBUST`. Condition waits use `CLOCK_MONOTONIC`.
+Queue Layout version 3 使用 `PTHREAD_PROCESS_SHARED` 和 `PTHREAD_MUTEX_ROBUST` 初始化
+mutex。Condition wait 使用 `CLOCK_MONOTONIC`。
 
-When lock or timed-wait acquisition reports `EOWNERDEAD`, ring metadata may be mid-update. Recovery
-therefore resets head, tail, and size to a valid empty state, increments the owner-death metric,
-broadcasts waiters, and calls `pthread_mutex_consistent`. Publisher outstanding tracking repairs
-references for discarded handles. `ENOTRECOVERABLE` is reported as an explicit synchronization
-error. A fork-based test kills a process while it owns and corrupts the mutex, then verifies repair
-and continued queue use.
+Lock 或 timed-wait acquisition 返回 `EOWNERDEAD` 时，Ring metadata 可能处于修改中间状态，
+因此 Recovery 会把 Head、Tail 和 Size 重置为有效空状态，递增 owner-death metric，broadcast
+Waiter，然后调用 `pthread_mutex_consistent`。Publisher outstanding tracking 修复被丢弃
+Handle 的 Reference。`ENOTRECOVERABLE` 会作为明确的 synchronization error 返回。一个基于
+fork 的测试会在进程持有并破坏 Mutex 时将其杀死，然后验证修复以及 Queue 可继续使用。
 
-The registry's dead-subscriber close also broadcasts the condition. A publisher blocked under
-`BLOCK_WITH_TIMEOUT` wakes rather than waiting the entire configured timeout.
+Registry 对 dead Subscriber 执行 Close 时也会 broadcast Condition。被
+`BLOCK_WITH_TIMEOUT` 阻塞的 Publisher 会被唤醒，而不是等待完整配置 Timeout。
 
-## SHM Ownership And Cleanup
+## SHM 所有权与 Cleanup
 
-The publisher owns its pool name, mapping, free lists, chunk state, and reference counts. Each
-subscriber owns its queue name, queue mapping, and listener path. Peers own non-name-owning
-mappings. The registry stores exact descriptors so it can unlink an owner's resources after death;
-it never assumes that similarly named objects belong to that node.
+Publisher 拥有 Pool name、Mapping、free list、Chunk state 和 refcount。每个 Subscriber 拥有
+Queue name、Queue mapping 和 Listener path。Peer 只拥有不带 Name ownership 的 Mapping。
+Registry 保存精确 Descriptor，以便 Owner 死亡后 unlink 资源；不会假设相似名称的 Object 归属
+该 Node。
 
-Normal exit remains owner-led RAII cleanup and explicit unregistration. Crash exit is
-registry-led cleanup plus application-thread peer repair. Both routes converge on the same removed
-registry state and tolerate the other route having already completed.
+正常退出依赖 Owner-led RAII cleanup 和显式 unregistration；崩溃退出依赖 Registry-led cleanup
+与 application-thread Peer repair。两条路径最终产生相同的已移除 Registry state，并允许另一
+条路径已经完成。
 
-## Reconnect Flow
+## 重连流程
 
-A live SHM publisher reuses its last compatible discovery result for at most 1 ms. An empty
-connection set, socket/queue failure, disconnect, or peer-death event invalidates the window
-immediately; otherwise the next bounded refresh removes vanished subscribers and connects new
-endpoint IDs while preserving survivors. A live subscriber observes publisher death through its
-old data socket or peer event, resets only the old pool, and accepts a replacement connection.
-Registry one-publisher enforcement allows a replacement only after the dead publisher record is
-removed.
+活动 SHM Publisher 最多复用最后一次兼容 Discovery 结果 1 ms。空 Connection set、Socket/Queue
+故障、Disconnect 或 Peer-death event 会立即使窗口失效；否则下一次有界刷新会移除已消失
+Subscriber，连接新 Endpoint ID，并保留存活 Endpoint。活动 Subscriber 通过旧 Data Socket 或
+Peer event 观察 Publisher death，只 reset 旧 Pool，然后接受 replacement connection。Registry
+只有在 dead Publisher record 被移除后，才允许 replacement 通过单 Publisher 规则。
 
-## Metrics
+## 指标
 
-`RegistryState` records heartbeat receives, ALIVE-to-SUSPECTED transitions, and dead-node cleanup
-count. Queue stats record owner-death recovery and peer reset counts in addition to the queue policy
-counters. `mwctl stats` exposes a current registry-object snapshot and those three lifetime
-liveness counters. Per-publication queue, drop, block, and allocation metrics remain in
-`PublishResult` and benchmark artifacts; there is no general metrics export or visualization
-system.
+`RegistryState` 记录 Heartbeat receive、ALIVE-to-SUSPECTED transition 和 dead-node cleanup
+count。除 Queue Policy counter 外，Queue Stats 还记录 owner-death recovery 和 Peer reset
+count。`mwctl stats` 暴露当前 Registry object snapshot 和三个累计 Liveness counter。
+per-publication Queue、Drop、Block 和 Allocation metric 保存在 `PublishResult` 和 Benchmark
+artifact 中；系统没有通用 Metrics export 或 visualization。
 
-## Known Limitations
+## 已知限制
 
-- An existing context does not reconnect its heartbeat/control session after registry-daemon loss.
-- A live process that stops heartbeating is treated as dead even if one of its application threads
-  still runs; this is lease semantics.
-- Queue owner-death repair deliberately resets uncertain contents and can drop samples.
-- Registry cleanup uses exact registered names only; unrelated or preexisting stale resources are
-  not scavenged.
-- The event cache is bounded and may drop the oldest event under extreme churn; discovery and
-  socket reconciliation remain the fallback sources of current endpoint truth.
-- Robust pthread behavior and shared atomic layout are local Linux/compiler ABI assumptions.
-- The ROS2 adapter and automated benchmark reuse these cleanup guarantees; they do not extend the
-  failure model to distributed hosts, registry restart recovery, or arbitrary memory corruption.
+- 现有 Context 不会在 Registry daemon 丢失后重连 Heartbeat/Control session。
+- 即使某个应用线程仍在运行，停止 Heartbeat 的活动进程也会被视为 Dead；这是 Lease semantics。
+- Queue owner-death repair 会有意重置不确定内容，可能丢弃 Sample。
+- Registry Cleanup 只使用精确注册 Name；不会回收无关或预先存在的 stale resource。
+- Event cache 有界，在极端 churn 下可能丢弃最旧 Event；Discovery 和 Socket reconciliation
+  仍是当前 Endpoint 状态的备用权威来源。
+- Robust pthread 行为和 Shared atomic layout 是本机 Linux/compiler ABI 假设。
+- ROS2 Adapter 和自动 Benchmark 复用这些 Cleanup guarantee，但不会把 Failure Model 扩展到
+  分布式主机、Registry restart recovery 或任意 Memory corruption。

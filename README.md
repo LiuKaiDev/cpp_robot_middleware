@@ -4,8 +4,6 @@
 Socket 控制面与 UDS/Shared Memory 数据面分离，提供有界的消息所有权、故障恢复、独立的
 ROS2 Adapter，以及可复现的跨进程 Benchmark。
 
-项目明确不属于 DDS、定制 ROS2 RMW、分布式中间件、生产级产品或硬实时系统。
-
 ## 项目解决的问题
 
 机器人进程既要传输小型控制消息，也要传输数 MiB 的图像。真正困难的部分不只是调用
@@ -307,7 +305,3 @@ copy；参考结果来自 WSL2，未做 CPU isolation；实验环境没有 `perf
 可能的后续方向包括 native Linux perf/strace、event-driven Discovery、`eventfd`、有证据支持的
 SPSC/allocator 改进、PointCloud2、多 Publisher 语义、远程 transport、CI 和 Registry restart
 recovery。它们都不是当前功能。
-
-## 许可证
-
-项目许可证尚未选择。

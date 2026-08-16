@@ -1,14 +1,13 @@
-# Phase 8.1 Optimized Reference Results
+# 优化后参考结果
 
-These compact artifacts were generated from the complete 441-run Phase 8 main and backpressure
-matrix on Git commit `971129a4495fcd870efe05b51d2dfe8e0087a0a9`.
+这些精简 artifact 来自在 Git commit `971129a4495fcd870efe05b51d2dfe8e0087a0a9` 上执行的完整
+441-run 主矩阵与 Backpressure 矩阵。
 
-- `machine.json`: sanitized host, toolchain, Git, ROS, and effective configuration metadata.
-- `config.json`: deterministic 441-case order and benchmark settings.
-- `summary.json` and `summary.csv`: aggregate medians with repetition min/max values.
-- Four PNG files: latency, throughput, CPU, and subscriber-scaling plots.
+- `machine.json`：已脱敏的主机、工具链、Git、ROS 和实际生效配置 metadata。
+- `config.json`：确定性的 441-case 顺序和 Benchmark 配置。
+- `summary.json` 与 `summary.csv`：包含 repetition 最小值/最大值的聚合 median。
+- 四个 PNG 文件：latency、throughput、CPU 和 Subscriber scaling 图表。
 
-All 441 runs and all 147 aggregate groups were valid. The raw run tree was kept under
-`.work/phase_8_1/full_matrix/phase8_1_full_971129a` during validation and is intentionally not
-committed; it is removed by the Phase 8.1 cleanup step after these compact artifacts are saved.
-The original `phase8_reference/` remains unchanged for historical comparison.
+全部 441 次运行和 147 个聚合组均有效。验证期间，原始运行目录树存放在
+`.work/phase_8_1/full_matrix/phase8_1_full_971129a`，未提交到仓库；保存这些精简 artifact 后，
+清理步骤会删除该目录。原始 `phase8_reference/` 保持不变，用于历史对照。

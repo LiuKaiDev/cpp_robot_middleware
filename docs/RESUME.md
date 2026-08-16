@@ -1,18 +1,18 @@
-# Resume Guide
+# 简历指南
 
-## Recommended Title
+## 推荐标题
 
 **Linux C++ High-Performance Shared-Memory Pub/Sub Middleware and ROS2 Adapter**
 
-Chinese alternative: **Linux C++ 高性能共享内存发布订阅中间件与 ROS2 适配框架**
+中文标题：**Linux C++ 高性能共享内存发布订阅中间件与 ROS2 适配框架**
 
-## Concise Summary
+## 简介
 
-Designed and implemented a Linux-local C++17 multi-process Pub/Sub middleware with a versioned UDS
-control plane, UDS/SHM data paths, preallocated memory pools, multi-subscriber chunk sharing,
-backpressure, crash recovery, a ROS2 adapter, and a repeatable cross-process benchmark.
+设计并实现一个 Linux 本机 C++17 多进程 Pub/Sub 中间件，包含版本化 UDS Control Plane、
+UDS/SHM Data Plane、预分配 Memory Pool、多 Subscriber Chunk 共享、Backpressure、崩溃恢复、
+ROS2 Adapter，以及可复现的跨进程 Benchmark。
 
-## Chinese Resume Bullets
+## 中文简历要点
 
 - 基于 Linux 与 C++17 自主设计本机多进程 Pub/Sub 中间件，将 UDS 注册发现控制面与
   UDS/共享内存数据面解耦，实现 Topic 类型校验、单 Publisher/N Subscriber 与运行状态查询。
@@ -37,31 +37,31 @@ backpressure, crash recovery, a ROS2 adapter, and a repeatable cross-process ben
   environment, 4 MiB 1-to-1 p50 was 2053.4/626.9/274.1 us and throughput was
   1113.0/1500.0/1524.6 MiB/s for UDS/SHM Copy/SHM Loan.
 
-## Key Technologies
+## 关键技术
 
-`C++17`, RAII, move semantics, atomics, pthread robust mutex/condition variable, Unix Domain
-Sockets, POSIX shared memory, `mmap`, `epoll`, CMake install/export, GoogleTest, Python benchmark
-automation, ROS2 Jazzy, `rclcpp`, Fast DDS.
+`C++17`、RAII、move semantics、atomic、pthread robust mutex/condition variable、Unix Domain
+Socket、POSIX Shared Memory、`mmap`、`epoll`、CMake install/export、GoogleTest、Python
+Benchmark automation、ROS2 Jazzy、`rclcpp`、Fast DDS。
 
-## Quantitative Evidence Context
+## 量化证据背景
 
-The numbers above are medians from `benchmark/results/phase8_1_reference/`: Release
-`-O3 -DNDEBUG -g -fno-omit-frame-pointer`, WSL2, Intel i5-8300H, ROS2 Jazzy,
-`rmw_fastrtps_cpp`, three repetitions. They do not claim a universal advantage over ROS2 or UDS.
+上述数字是 `benchmark/results/phase8_1_reference/` 中的 median：Release
+`-O3 -DNDEBUG -g -fno-omit-frame-pointer`、WSL2、Intel i5-8300H、ROS2 Jazzy、
+`rmw_fastrtps_cpp`、三次 repetition。它们不代表相对 ROS2 或 UDS 的普遍优势。
 
-Small-message tradeoff: at 64 B, UDS p50 was 80.7 us versus 170.0 us SHM Copy and 157.2 us SHM
-Loan; maximum message rates were 148.0k, 130.8k, and 151.4k/s. This is useful interview evidence
-that shared memory does not automatically win.
+小消息的权衡：64 B 时，UDS p50 为 80.7 us，SHM Copy 为 170.0 us，SHM Loan 为 157.2 us；
+最大 message rate 分别为 148.0k、130.8k 和 151.4k/s。这是一项有价值的面试证据，说明 Shared
+Memory 不会自动胜出。
 
-## Interview Talking Points
+## 面试讨论要点
 
-- Why control/data separation keeps discovery off the payload path.
-- Why logical chunk identity cannot use cross-process pointer equality.
-- How the guard reference prevents enqueue-versus-reclaim races.
-- Why robust queue repair and publisher outstanding tracking are both needed after a crash.
-- Where copies remain in UDS, SHM Copy, owning receive, and the ROS2 adapter.
-- Why the project chose a correct mutex-based bounded design before evidence-driven optimization.
-- Why the profiling run reports `/proc` evidence honestly instead of claiming unavailable perf/strace data.
+- Control Plane/Data Plane 分离为何能让 Discovery 离开 payload path。
+- 为什么逻辑 Chunk 身份不能使用跨进程指针相等性。
+- guard reference 如何避免 enqueue 与 reclaim 之间的竞争。
+- 崩溃后为何同时需要 robust Queue repair 和 Publisher outstanding tracking。
+- UDS、SHM Copy、owning receive 和 ROS2 Adapter 中仍有哪些复制。
+- 为什么项目先选择正确、基于 mutex 的有界设计，再进行证据驱动的优化。
+- 为什么 profiling 如实报告 `/proc` 证据，而不声称获得了不可用的 perf/strace 数据。
 
-Do not describe this project as production middleware, a DDS replacement, a custom RMW,
-distributed, lock-free, fully zero-copy, or hard real-time.
+不要把本项目描述为生产级 Middleware、DDS replacement、custom RMW、分布式系统、lock-free
+系统、完全 zero-copy 系统或硬实时系统。

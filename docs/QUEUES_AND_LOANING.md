@@ -1,21 +1,20 @@
-# Subscriber Queues And Loaned Shared Memory
+# Subscriber Queue 与 Loaned Shared Memory
 
-## Scope
+## 范围
 
-Each SHM subscriber has a bounded queue with explicit overflow behavior; publishers can expose
-writable loans and subscribers can retain read-only views. The process-shared queue mutex is robust
-and participates in crash repair. The queue contains metadata only. Payload bytes remain in the
-publisher-owned memory pool documented in [MEMORY_POOL.md](MEMORY_POOL.md).
+每个 SHM Subscriber 都有带明确 Overflow 行为的有界 Queue；Publisher 可暴露 writable Loan，
+Subscriber 可保留 read-only View。Process-shared Queue mutex 是 robust mutex，并参与崩溃修复。
+Queue 只保存 metadata，payload byte 保留在 Publisher-owned Memory Pool 中，详见
+[Memory Pool](MEMORY_POOL.md)。
 
-The copied UDS baseline and the ordinary SHM `Publisher::publish()` path remain available.
+Copied UDS baseline 和普通 SHM `Publisher::publish()` path 均继续可用。
 
-## Subscriber Queue Architecture
+## Subscriber Queue 架构
 
-Every SHM `Subscriber` creates one POSIX SHM queue before registering its endpoint. The queue name,
-ID, exact segment size, capacity, layout version, overflow policy, and block timeout are sent to the
-registry. Discovery returns that descriptor to the publisher, which opens a read-write mapping.
-The registry stores the descriptor and maps the queue only when it must robust-close a dead
-subscriber's registered queue.
+每个 SHM `Subscriber` 在注册 Endpoint 前创建一个 POSIX SHM Queue。Queue name、ID、精确
+Segment size、Capacity、Layout version、Overflow Policy 和 block timeout 会发送给 Registry。
+Discovery 把 Descriptor 返回给 Publisher，后者打开 read-write mapping。Registry 保存该
+Descriptor，只在需要 robust-close dead Subscriber 的已注册 Queue 时才 map 它。
 
 ```text
 Publisher pool                         Subscriber endpoint
@@ -27,98 +26,92 @@ Publisher pool                         Subscriber endpoint
          +------------ data UDS ----------------+
 ```
 
-The subscriber owns the queue SHM name and unlinks it at normal destruction. An attachment count
-keeps the process-shared synchronization objects alive until the final normal mapping detaches.
-The publisher owns its mapping only. Queue capacity is bounded to 65,536 entries; depth zero and
-checked-size overflow are rejected.
+Subscriber 拥有 Queue SHM name，并在正常析构时 unlink。Attachment count 使 process-shared
+synchronization object 在最后一个正常 mapping detach 前保持有效。Publisher 只拥有自己的
+mapping。Queue capacity 上限为 65,536 个 entry；depth zero 和 checked-size overflow 会被拒绝。
 
 ## Ring Buffer Layout
 
-The native local-host layout consists of `SubscriberQueueHeader`, alignment padding, and exactly
-`capacity` `ChunkHandle` slots. Header state includes head, tail, current size, capacity, high-water
-mark, close state, attachment count, policy, timeout, policy/repair counters, one robust
-process-shared mutex, and one process-shared condition variable. Queue layout version 3 adds exact
-blocked-operation and blocked-time counters used by the benchmark; it does not change the queue
-policies.
+Native local-host Layout 由 `SubscriberQueueHeader`、alignment padding 和恰好 `capacity`
+个 `ChunkHandle` slot 构成。Header state 包含 head、tail、当前 size、capacity、high-water
+mark、close state、attachment count、Policy、timeout、Policy/repair counter、一个 robust
+process-shared mutex 和一个 process-shared condition variable。Queue Layout version 3 新增
+Benchmark 使用的精确 blocked-operation 和 blocked-time counter，不改变 Queue Policy。
 
-Each entry is only:
+每个 Entry 只包含：
 
 ```text
 pool_id, chunk_index, generation, payload_offset
 ```
 
-No payload bytes, pointers, vectors, strings, or ownership-bearing C++ objects are stored in the
-ring. Head/tail arithmetic is modulo capacity. Empty and full are distinguished by the explicit
-size field.
+Ring 中不存放 payload byte、Pointer、vector、string 或带 Ownership 的 C++ object。Head/Tail
+计算对 Capacity 取模。通过显式 size field 区分 Empty 和 Full。
 
-## Synchronization Model
+## 同步模型
 
-Queue mutation uses a `PTHREAD_PROCESS_SHARED | PTHREAD_MUTEX_ROBUST` mutex. Producers waiting for space use a
-`PTHREAD_PROCESS_SHARED` condition variable configured with `CLOCK_MONOTONIC`. A dequeue signals
-one blocked producer; close broadcasts to all waiters. All condition waits recheck the full/closed
-predicates while holding the mutex.
+Queue mutation 使用 `PTHREAD_PROCESS_SHARED | PTHREAD_MUTEX_ROBUST` mutex。等待空间的
+Producer 使用配置了 `CLOCK_MONOTONIC` 的 `PTHREAD_PROCESS_SHARED` condition variable。
+Dequeue 唤醒一个 blocked Producer；Close broadcast 所有 Waiter。所有 Condition wait 都在
+持有 mutex 时重新检查 Full/Closed predicate。
 
-On `EOWNERDEAD`, the acquiring process treats ring indices/size as uncertain, resets the queue to
-empty, increments `owner_death_recoveries`, broadcasts the condition, and calls
-`pthread_mutex_consistent`. This may drop queued handles; publisher-side outstanding tracking is the
-authority that repairs their references. `ENOTRECOVERABLE` becomes an explicit synchronization
-error. There is no lock-free queue, data-plane worker thread, or hard real-time claim. Publisher and
-subscriber application threads perform normal queue operations; the registry event loop performs
-only dead-subscriber close/repair.
+出现 `EOWNERDEAD` 时，获取 Lock 的进程将 Ring index/size 视为不确定状态，把 Queue 重置为空，
+递增 `owner_death_recoveries`，broadcast Condition，然后调用 `pthread_mutex_consistent`。
+这可能丢弃已排队 Handle；Publisher-side outstanding tracking 是修复其 reference 的权威来源。
+`ENOTRECOVERABLE` 会成为明确的 synchronization error。系统不包含 lock-free Queue、Data Plane
+worker thread，也不声称 hard real-time。Publisher/Subscriber 应用线程执行正常 Queue operation；
+Registry event loop 只执行 dead-Subscriber close/repair。
 
-## Queue Full Semantics
+## Queue 满时的语义
 
-`SubscriberConfig` provides `queue_depth`, `overflow_policy`, and `block_timeout`. Policy applies
-per endpoint, so subscribers on one topic may choose different capacities and behavior.
+`SubscriberConfig` 提供 `queue_depth`、`overflow_policy` 和 `block_timeout`。Policy 按
+Endpoint 生效，因此同一 Topic 上的 Subscriber 可选择不同 Capacity 和行为。
 
 ### DROP_NEWEST
 
-When full, the existing ring is unchanged and the new handle is rejected for that subscriber.
-The publisher gives back the tentative reference and reports `QueueFull` if every endpoint rejects
-the sample. `PublishResult::dropped_newest` counts endpoint decisions.
+Queue 满时，现有 Ring 不变，新 Handle 对该 Subscriber 被拒绝。Publisher 归还 tentative
+reference；如果所有 Endpoint 都拒绝该 Sample，则报告 `QueueFull`。
+`PublishResult::dropped_newest` 统计 Endpoint decision 数。
 
 ### DROP_OLDEST
 
-When full, the queue removes its oldest handle and inserts the new one atomically under the queue
-mutex. The publisher then removes and releases exactly the displaced endpoint reference. If it was
-the final reference, the old chunk is reclaimed. `PublishResult::dropped_oldest` records the
-replacement; the publish remains successful because the newest sample was accepted.
+Queue 满时，在 Queue mutex 下以 atomic 操作移除最旧 Handle 并插入新 Handle。随后 Publisher
+移除并恰好一次地释放被替换的 Endpoint reference。如果这是最后一个 Reference，旧 Chunk 会被
+reclaim。`PublishResult::dropped_oldest` 记录 replacement；因为最新 Sample 已被接受，Publish
+仍成功。
 
 ### BLOCK_WITH_TIMEOUT
 
-When full, the publisher waits on the monotonic condition deadline until a dequeue creates space,
-the queue closes, or `block_timeout` expires. Expiry rejects only that endpoint reference and
-reports `QueueTimeout` when no endpoint accepted the sample. This timeout is queue backpressure,
-not dead-subscriber detection.
+Queue 满时，Publisher 在 monotonic condition deadline 前等待，直到 Dequeue 创建空间、Queue
+close 或 `block_timeout` 到期。到期只拒绝该 Endpoint reference；没有 Endpoint 接受 Sample
+时报告 `QueueTimeout`。该 Timeout 表示 Queue Backpressure，而不是 dead-Subscriber detection。
 
-## Reference And Enqueue Protocol
+## Reference 与 Enqueue Protocol
 
-Publication starts with one publisher guard reference. For each subscriber, the publisher adds a
-tentative reference before exposing the handle to its queue. Acceptance transfers that reference
-to the endpoint. Drop, timeout, close, synchronization failure, or failed first wake immediately
-returns it. `DROP_OLDEST` additionally returns the displaced endpoint reference.
+Publish 从一个 Publisher guard reference 开始。针对每个 Subscriber，Publisher 在把 Handle
+暴露给 Queue 前增加 tentative reference；接受后该 Reference 转移给 Endpoint。Drop、timeout、
+close、synchronization failure 或首次 Wake 失败都会立即归还 Reference。`DROP_OLDEST` 还会
+归还被替换的 Endpoint reference。
 
-Only after every endpoint decision does the publisher release the guard. Therefore a fast
-subscriber cannot release the new generation to zero and allow reuse while the publisher is still
-adding references for later subscribers.
+所有 Endpoint decision 完成后，Publisher 才释放 guard。因此快速 Subscriber 无法在 Publisher
+仍为后续 Subscriber 添加 Reference 时，将新 generation 降为零并允许复用。
 
-The publisher tracks outstanding handles per connection and is the only process that mutates pool
-reference counts or free lists. The vector is bounded by the total configured pool chunk count.
-Subscriber releases are fixed metadata frames. Dead-subscriber cleanup drains that endpoint's
-remaining vector exactly once and tombstones the endpoint until discovery removes it.
+Publisher 按 Connection 跟踪 outstanding Handle，并且是唯一修改 Pool refcount 或 free list
+的进程。Vector 上限为配置的 Pool Chunk 总数。Subscriber release 是固定 metadata frame。
+dead-Subscriber Cleanup 会恰好一次地清理该 Endpoint 的剩余 vector，并 tombstone 该 Endpoint，
+直到 Discovery 将其移除。
 
-## UDS Wake And Release
+## UDS Wake 与 Release
 
-The existing data UDS remains the notification channel. A 272-byte wake contains the pool
-descriptor and queue ID; it contains no handle or business payload. A 32-byte release contains one
-`ChunkHandle` and no payload. A wake is sent only for an empty-to-nonempty transition. The
-subscriber reads the ring as the source of truth, so one wake can cover multiple queued entries.
+现有 Data UDS 继续充当 Notification channel。272-byte Wake 包含 Pool descriptor 和 Queue ID，
+不包含 Handle 或业务 payload。32-byte Release 包含一个 `ChunkHandle`，不包含 payload。
+只有 empty-to-nonempty transition 才发送 Wake。Subscriber 把 Ring 作为权威数据源，因此一个
+Wake 可覆盖多个 Queue entry。
 
-`eventfd` optimization is deferred. UDS remains the supported wake mechanism.
+`eventfd` 优化已推迟，UDS 仍是支持的 Wake mechanism。
 
-## LoanedSample Lifecycle
+## LoanedSample 生命周期
 
-`Publisher::loan(size)` is available only for SHM publishers:
+`Publisher::loan(size)` 只适用于 SHM Publisher：
 
 ```text
 FREE --loan--> LOANED --LoanedSample::publish--> PUBLISHED
@@ -126,30 +119,29 @@ FREE --loan--> LOANED --LoanedSample::publish--> PUBLISHED
   +---- cancel ----+  LoanedSample destructor without publish
 ```
 
-`LoanedSample` is move-only and owns exactly one LOANED generation. `data()` exposes only the
-payload region for application writes; pool headers and lifecycle fields remain private. `size()`
-is the requested payload size and `capacity()` is the selected size-class capacity. Destruction
-without publish cancels and returns the chunk. A move transfers ownership and leaves the source
-inactive. The first `publish()` consumes the object whether it succeeds or fails; a second call
-returns `InvalidState` and cannot enqueue or add references again.
+`LoanedSample` 是 move-only object，恰好拥有一个 LOANED generation。`data()` 只暴露供应用
+写入的 payload region；Pool Header 和 Lifecycle field 保持 private。`size()` 是请求的 payload
+size，`capacity()` 是选中的 size-class capacity。未 Publish 即析构会 cancel 并归还 Chunk。
+Move 会转移 Ownership 并使 Source inactive。第一次 `publish()` 无论成功或失败都会 consume
+Object；第二次调用返回 `InvalidState`，不能再次 enqueue 或增加 Reference。
 
-On UDS, `loan()` returns `UnsupportedTransport`; it does not allocate a heap buffer that pretends to
-be a shared-memory loan.
+在 UDS 上，`loan()` 返回 `UnsupportedTransport`；不会分配一个假装是 Shared Memory Loan 的
+Heap buffer。
 
-## SampleView Lifecycle
+## SampleView 生命周期
 
-`Subscriber::takeView()` and `waitAndTakeView()` expose the SHM receive path. `SampleView` is
-move-only and provides only `const void* data() const`, size, sequence, monotonic publish timestamp,
-and logical chunk identity. It never exposes writable shared payload memory.
+`Subscriber::takeView()` 和 `waitAndTakeView()` 暴露 SHM receive path。`SampleView` 是
+move-only object，只提供 `const void* data() const`、size、sequence、monotonic publish
+timestamp 和逻辑 Chunk identity；绝不暴露 writable shared payload memory。
 
-One view owns one subscriber reference. It retains a shared read-only pool mapping and a shared
-release-channel context rather than a raw `Subscriber*`. Its non-throwing destructor sends one
-release exactly once. Moved-from views are inert. Consequently a view can safely outlive its
-`Subscriber` object and continues to hold the chunk against reuse until its own destruction.
+一个 View 拥有一个 Subscriber reference。它保留 shared read-only Pool mapping 和 shared
+release-channel context，而不是 raw `Subscriber*`。其 non-throwing destructor 恰好发送一次
+Release。Moved-from View 不再生效。因此 View 可以安全地比 `Subscriber` object 存活更久，
+并在自身析构前持续阻止 Chunk 被复用。
 
-## Copy And Loan Paths
+## Copy 与 Loan Path
 
-The SHM copy path remains:
+SHM Copy Path 保持如下：
 
 ```text
 Publisher::publish(application buffer)
@@ -158,7 +150,7 @@ Publisher::publish(application buffer)
   -> SampleView, or one copy into compatible ReceivedMessage
 ```
 
-The verified loan path is:
+经验证的 Loan Path 为：
 
 ```text
 application writes LoanedSample::data()
@@ -166,26 +158,25 @@ application writes LoanedSample::data()
   -> subscriber reads it through SampleView
 ```
 
-The verified SHM loaned path avoids middleware payload copies between publisher loan fill and
-subscriber `SampleView`. This statement does not apply to UDS, ordinary `publish()`, or the owning
-`ReceivedMessage` compatibility API. Virtual addresses are not compared across processes; logical
-pool ID, chunk index, generation, and payload offset identify the same payload.
+经过验证的 SHM Loan path 在 Publisher 填充 Loan 与 Subscriber `SampleView` 之间，不产生
+middleware payload copy。该结论不适用于 UDS、普通 `publish()` 或兼容的 owning
+`ReceivedMessage` API。不同进程不比较虚拟地址；相同 payload 由逻辑 Pool ID、Chunk index、
+generation 和 payload offset 标识。
 
-## Normal And Crash Cleanup
+## 正常与崩溃 Cleanup
 
-Normal subscriber destruction closes the queue, wakes blocked producers, drains queued handles,
-and emits their releases. Existing `SampleView` objects retain their release channel and release
-later. Normal publisher destruction waits a bounded interval for outstanding view releases and
-then drains remaining queued handles before unmapping and unlinking its pool.
+Subscriber 正常析构时关闭 Queue、唤醒 blocked Producer、drain 已排队 Handle 并发送 Release。
+现有 `SampleView` 保留自己的 Release channel，之后再 Release。Publisher 正常析构时会有界
+等待 outstanding View release，然后在 unmap/unlink Pool 前清理剩余已排队 Handle。
 
-After subscriber `SIGKILL`, control EOF/HUP or heartbeat timeout removes its endpoint. The registry
-opens the exact registered queue, robust-recovers the mutex if necessary, marks the queue closed,
-broadcasts blocked producers, and unlinks the name. A peer-death event tells the publisher to
-release all still-outstanding endpoint references. Other subscribers and their queues are left
-untouched. Repeated cleanup tolerates missing records and already-unlinked names.
+Subscriber 被 `SIGKILL` 后，Control EOF/HUP 或 Heartbeat timeout 会移除其 Endpoint。Registry
+打开精确的已注册 Queue，必要时 robust-recover mutex，将 Queue 标记为 Closed，broadcast
+blocked Producer 并 unlink Name。Peer-death event 通知 Publisher 释放所有仍 outstanding 的
+Endpoint reference。其他 Subscriber 和 Queue 不受影响。重复 Cleanup 可接受缺失 Record 和已
+unlink Name。
 
-After publisher death, the registry unlinks the exact pool name and tells subscribers to discard
-only entries for that pool and reset the old mapping/connection. A replacement publisher may then
-connect and install a new pool descriptor. Recovery does not repair arbitrary queue memory
-corruption, recover a failed registry daemon in-place, or claim hard real-time behavior. The
-separate ROS2 adapter preserves these queue semantics while adding serialization copies.
+Publisher 死亡后，Registry unlink 精确 Pool name，并通知 Subscriber 只丢弃属于该 Pool 的
+Entry，同时 reset 旧 Mapping/Connection。Replacement Publisher 随后可以连接并安装新的 Pool
+descriptor。Recovery 不修复任意 Queue memory corruption，不在现有进程中恢复失败的 Registry
+daemon，也不声称 hard real-time。独立 ROS2 Adapter 保留这些 Queue 语义，同时增加
+serialization copy。

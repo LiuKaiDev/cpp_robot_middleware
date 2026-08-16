@@ -1,25 +1,25 @@
 # Data Plane
 
-## Scope
+## 范围
 
-The v1 data plane has two independently selectable Linux-local payload transports, with copy/loan
-choices and peer-crash recovery:
+v1 Data Plane 提供两种可独立选择的 Linux 本机 payload transport，并包含 Copy/Loan 选择和
+Peer crash recovery：
 
-- `TransportType::UnixDomainSocket` is the copied UDS baseline.
-- `TransportType::SharedMemory` is the registry-discovered preallocated POSIX SHM pool transport.
+- `TransportType::UnixDomainSocket` 是 copied UDS baseline。
+- `TransportType::SharedMemory` 是由 Registry 发现的预分配 POSIX SHM Pool transport。
 
-The registry control plane remains UDS in both modes. SHM mode also retains direct publisher to
-subscriber UDS connections for fixed wake/release metadata. Business payload bytes do not travel
-through UDS in SHM mode.
+两种模式下 Registry Control Plane 都使用 UDS。SHM mode 还保留 Publisher 到 Subscriber 的
+direct UDS connection，用于固定 Wake/Release metadata；业务 payload byte 在 SHM mode 下
+不会经过 UDS。
 
-## UDS Baseline
+## UDS 基线
 
-The UDS path sends the explicitly encoded 24-byte `MW01`
-header followed by exactly `payload_size` bytes. The subscriber incrementally receives the stream
-and returns an owning `ReceivedMessage`. Direct mode supports this baseline; registry mode can also
-select it with `TransportType::UnixDomainSocket`. This path selects one discovered subscriber.
+UDS path 发送显式编码的 24-byte `MW01` Header，随后发送恰好 `payload_size` 个字节。
+Subscriber 递增接收 stream，并返回 owning `ReceivedMessage`。Direct mode 支持这条 baseline；
+Registry mode 也可通过 `TransportType::UnixDomainSocket` 选择它。该路径选择一个已发现
+Subscriber。
 
-## SHM Pool Architecture
+## SHM Pool 架构
 
 ```text
                          mw_registryd
@@ -33,106 +33,96 @@ select it with `TransportType::UnixDomainSocket`. This path selects one discover
                         +<- RELEASEs ---+--+
 ```
 
-The publisher creates and maps one pool at endpoint startup. Every subscriber creates one bounded
-ring queue and the publisher maps it after discovery. `publish()` allocates a preexisting chunk and
-copies the application buffer once; `loan()` instead lets the application fill the selected chunk
-directly. Publication enqueues the same logical handle into every accepting subscriber queue.
-`waitAndTakeView()` reads the mapped payload directly, while `waitAndTake()` retains the compatible
-owning copy. The publisher reclaims the chunk after all endpoint references are released. There are
-no middleware data worker threads.
+Publisher 在 Endpoint 启动时创建并 map 一个 Pool。每个 Subscriber 创建一个有界 Ring Queue，
+Publisher 在 Discovery 后 map 它。`publish()` 分配一个已有 Chunk，并把 application buffer
+复制一次；`loan()` 则允许应用直接填充选中的 Chunk。Publish 会把同一个逻辑 Handle 加入每个
+接受该消息的 Subscriber Queue。`waitAndTakeView()` 直接读取 mapped payload，
+`waitAndTake()` 保留兼容的 owning copy。所有 Endpoint reference 被释放后，Publisher 回收
+Chunk。Middleware 不包含 Data worker thread。
 
-## SharedMemoryRegion Ownership
+## SharedMemoryRegion 所有权
 
-`SharedMemoryRegion` remains the only mmap RAII wrapper. Every instance owns its fd and mapping and
-closes/unmaps them in its destructor. Name ownership is separate:
+`SharedMemoryRegion` 是唯一的 mmap RAII wrapper。每个实例拥有自己的 fd 和 mapping，并在
+析构时 close/unmap。Name ownership 单独管理：
 
-- The publisher performs `shm_open(O_CREAT | O_EXCL | O_RDWR)`, `ftruncate`, and writable `mmap`
-  once for the complete pool; it owns the POSIX name.
-- A subscriber performs `shm_open(O_RDONLY)` and read-only `mmap` once for that publisher pool. It
-  retains the non-name-owning mapping across messages and owns a separate read-write queue mapping.
-- The publisher opens each discovered subscriber queue read-write but does not own its SHM name.
-- The publisher region destructor performs best-effort normal `shm_unlink`.
+- Publisher 为整个 Pool 执行一次 `shm_open(O_CREAT | O_EXCL | O_RDWR)`、`ftruncate` 和
+  writable `mmap`；它拥有 POSIX name。
+- Subscriber 对该 Publisher Pool 执行一次 `shm_open(O_RDONLY)` 和 read-only `mmap`。它会
+  跨消息保留这个不拥有 name 的 mapping，并单独拥有一个 read-write Queue mapping。
+- Publisher 以 read-write 打开每个已发现 Subscriber Queue，但不拥有其 SHM name。
+- Publisher Region destructor 执行 best-effort 的正常 `shm_unlink`。
 
-Unlink removes the name but does not invalidate mappings that are already open. On publisher death,
-the registry unlinks the exact advertised pool name and surviving subscribers discard only handles
-for that pool before accepting a replacement publisher. Existing mappings/views remain valid until
-their local owners release them. On subscriber death, the registry robust-closes and unlinks that
-subscriber's exact queue; the live publisher releases its bounded per-endpoint outstanding handles.
+Unlink 会移除 name，但不会使已经打开的 mapping 失效。Publisher 死亡时，Registry unlink
+精确 advertised Pool name；存活 Subscriber 在接受 replacement Publisher 前，只丢弃属于该
+Pool 的 Handle。现有 mapping/view 在本地 Owner 释放前保持有效。Subscriber 死亡时，Registry
+robust-close 并 unlink 其精确 Queue；活动 Publisher 释放该 Endpoint 的有界 outstanding Handle。
 
-## Naming And Segment Layout
+## 命名与 Segment Layout
 
-Pool names have the form `/mw_p5_<publisher-pid>_<pool-id>` and queue names use
-`/mw_q5_<subscriber-pid>_<queue-id>`. They contain no raw topic text and do
-not change per message.
+Pool name 格式为 `/mw_p5_<publisher-pid>_<pool-id>`，Queue name 格式为
+`/mw_q5_<subscriber-pid>_<queue-id>`。Name 不包含原始 Topic text，也不会随消息改变。
 
-The segment contains an explicitly encoded pool header, encoded size-class metadata, an encoded
-chunk directory, and 64-byte-aligned native chunk headers plus fixed-capacity payload storage. See
-[MEMORY_POOL.md](MEMORY_POOL.md) for the field layout, checked arithmetic, atomic ABI assumption,
-state machine, and validation rules.
+Segment 包含显式编码的 Pool Header、size-class metadata、Chunk directory，以及按 64-byte
+对齐的 native Chunk Header 和固定容量 payload storage。Field layout、checked arithmetic、
+atomic ABI 假设、State Machine 和校验规则详见 [Memory Pool](MEMORY_POOL.md)。
 
-## Queue, Wake, And Release
+## Queue、Wake 与 Release
 
-A queue entry is one fixed logical chunk handle. An empty-to-nonempty wake is a fixed 272-byte UDS
-frame containing the pool descriptor and queue ID; it carries no handle or business payload. A
-release is fixed at 32 bytes and repeats the handle identity. One wake can cover multiple entries
-because the queue, not the UDS stream, is the source of truth.
+Queue entry 是一个固定的逻辑 Chunk Handle。Empty-to-nonempty Wake 是固定 272-byte UDS frame，
+包含 Pool descriptor 和 Queue ID，不携带 Handle 或业务 payload。Release 固定为 32 bytes，
+并重复 Handle identity。因为 Queue 而非 UDS stream 才是权威数据源，一个 Wake 可覆盖多个
+entry。
 
-Once the subscriber has installed the publisher pool mapping, `waitAndTakeView()` drains redundant
-complete wake frames with nonblocking receives before checking the shared queue. This keeps the
-metadata socket bounded when the queue repeatedly transitions from empty to nonempty; the queue
-remains authoritative, and malformed, mismatched, or disconnected wake streams retain their
-existing error handling.
+Subscriber 安装 Publisher Pool mapping 后，`waitAndTakeView()` 会在检查 Shared Queue 前，
+通过 nonblocking receive drain 多余的完整 Wake frame。这样可在 Queue 反复从 empty 变为
+nonempty 时限制 metadata socket；Queue 仍是权威数据源，malformed、mismatched 或 disconnected
+Wake stream 保持原有错误处理。
 
-The logical handle contains pool ID, global chunk index, allocation generation, and payload offset.
-Tests compare those fields across subscriber processes rather than comparing unrelated virtual
-addresses.
+逻辑 Handle 包含 Pool ID、global Chunk index、allocation generation 和 payload offset。测试
+在 Subscriber 进程间比较这些 Field，而不是比较无关的虚拟地址。
 
-## Publish And Consume Ordering
+## Publish 与 Consume 顺序
 
-The publisher writes payload and non-atomic metadata, initializes one guard reference, then
-release-stores `PUBLISHED`. It adds a tentative reference before each queue enqueue and releases
-the guard only after all endpoint decisions. A subscriber acquire-loads state, validates duplicated
-metadata, exposes a read-only view, and sends its release when that view is destroyed.
+Publisher 写入 payload 和 non-atomic metadata，初始化一个 guard reference，然后以 release-store
+发布 `PUBLISHED`。每次 enqueue Queue 前先增加 tentative reference，所有 Endpoint decision
+完成后才释放 guard。Subscriber 以 acquire-load 读取 state，校验重复 metadata，暴露 read-only
+view，并在该 View 析构时发送 release。
 
-Subscribers do not modify the free list or decrement references. The publisher is the only
-refcount writer and tracks outstanding handles per endpoint. Drop/timeout returns the tentative
-new reference; `DROP_OLDEST` returns the displaced reference. The last release changes the chunk to
-`RELEASED`; explicit reclaim returns it to its size-class free list as `FREE`.
+Subscriber 不修改 free list，也不递减 reference。Publisher 是唯一的 refcount writer，并按
+Endpoint 跟踪 outstanding Handle。Drop/timeout 会归还 tentative new reference；
+`DROP_OLDEST` 会归还被替换的 reference。最后一次 release 将 Chunk 改为 `RELEASED`；
+显式 reclaim 把它作为 `FREE` 放回对应 size-class free list。
 
-The publisher retains a bounded outstanding-handle vector for each connection, capped by the
-finite number of configured pool chunks. A valid release erases one matching obligation. Endpoint
-EOF/HUP, a registry dead-subscriber event, discovery reconciliation, or failed dispatch drains each
-remaining obligation exactly once before removing the connection. Generation checks protect a
-reused chunk index from a stale release.
+Publisher 为每条 Connection 保留有界 outstanding-handle vector，上限为配置的有限 Pool Chunk
+总数。有效 release 会删除一个匹配 obligation。Endpoint EOF/HUP、Registry dead-Subscriber
+event、Discovery reconciliation 或 dispatch 失败都会在移除 Connection 前，恰好一次地清理
+每个剩余 obligation。Generation check 防止复用的 Chunk index 被 stale release 影响。
 
-## Error Handling
+## 错误处理
 
-Configuration rejects unknown transports, direct SHM mode, invalid/unsorted/empty size classes,
-zero queue depth/counts, invalid policy/timeouts, and layout overflow. Registry rejects type or
-transport mismatch and invalid SHM pool/queue metadata. Subscribers reject bad magic/version,
-inconsistent pool/topic/queue identities, out-of-range metadata, misalignment, invalid chunk
-index/offset, stale generation, non-published state, and payload bounds before access.
+配置会拒绝未知 Transport、direct SHM mode、无效/未排序/为空的 size class、zero Queue depth/
+count、无效 Policy/timeout 和 Layout overflow。Registry 会拒绝 Type/Transport mismatch 和无效
+SHM Pool/Queue metadata。Subscriber 在访问前会拒绝错误 magic/version、不一致的
+Pool/Topic/Queue identity、越界 metadata、misalignment、无效 Chunk index/offset、stale
+generation、非 Published state 和越界 payload。
 
-Missing pools/queues, other `shm_open`/`ftruncate`/`mmap` failures, queue full/timeout/close, pool
-exhaustion, socket disconnects, and explicit unlink failures have explicit outcomes. Loan publish
-failure consumes or cancels the loan without leaving a LOANED chunk. If every endpoint rejects a
-published chunk, releasing the publisher guard reclaims it.
+Pool/Queue 缺失、其他 `shm_open`/`ftruncate`/`mmap` 故障、Queue full/timeout/close、Pool
+exhaustion、Socket disconnect 和显式 unlink failure 都有明确结果。Loan publish 失败会 consume
+或 cancel Loan，不留下 LOANED Chunk。如果所有 Endpoint 都拒绝 Published Chunk，释放 Publisher
+guard 即可回收它。
 
-`ECONNRESET` and `ENOTCONN` on a data UDS are classified as `ConnectionLost`, allowing publisher
-replacement. A new pool handle that reaches a subscriber queue before the old socket reports HUP
-is left queued; the old mapping is reset and the replacement wake validates and installs the new
-pool before access.
+Data UDS 上的 `ECONNRESET` 和 `ENOTCONN` 被归类为 `ConnectionLost`，从而允许 Publisher
+replacement。如果旧 Socket 报告 HUP 前，新 Pool Handle 已进入 Subscriber Queue，该 Handle
+会留在 Queue；旧 Mapping 被 reset 后，replacement Wake 会先校验并安装新 Pool，再访问数据。
 
-## Copy Semantics And Limitations
+## Copy 语义与限制
 
-Ordinary `publish()` has one application-buffer-to-SHM copy, and owning `ReceivedMessage` has one
-mapped-SHM-to-vector copy. The verified loaned path avoids middleware payload copies between the
-application filling `LoanedSample` and reading the same logical chunk through `SampleView`. This is
-not a claim that UDS, all SHM APIs, or the middleware as a whole is zero-copy. Performance
-measurements and their limits are documented in [BENCHMARK.md](BENCHMARK.md).
+普通 `publish()` 包含一次 application-buffer-to-SHM copy，owning `ReceivedMessage` 包含一次
+mapped-SHM-to-vector copy。经过验证的 Loan path 在应用填充 `LoanedSample` 与通过
+`SampleView` 读取同一个逻辑 Chunk 之间，不产生 middleware payload copy。这不代表 UDS、
+所有 SHM API 或整个 Middleware 都是 zero-copy。性能测量及其限制见 [Benchmark](BENCHMARK.md)。
 
-`eventfd` and `SCM_RIGHTS` remain future candidates rather than implemented optimizations. Recovery
-is scoped to registered resources and process crashes observed through control EOF/HUP or heartbeat
-timeout; it does not claim recovery from arbitrary shared-memory corruption or host failure. See
-[MESSAGE_LIFECYCLE.md](MESSAGE_LIFECYCLE.md) for ownership and [BENCHMARK.md](BENCHMARK.md) for the
-profiling measurements and their limits.
+`eventfd` 和 `SCM_RIGHTS` 仍是未来候选项，不是已实现优化。Recovery 仅覆盖已注册资源，以及
+通过 Control EOF/HUP 或 Heartbeat timeout 观测到的进程崩溃；不声称可以从任意 Shared Memory
+corruption 或主机故障中恢复。Ownership 见[消息生命周期](MESSAGE_LIFECYCLE.md)，Profiling
+测量及其限制见 [Benchmark](BENCHMARK.md)。

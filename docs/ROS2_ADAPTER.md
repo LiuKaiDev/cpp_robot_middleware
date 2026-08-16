@@ -1,8 +1,8 @@
 # ROS2 Adapter
 
-## Architecture And Dependency Direction
+## 架构与依赖方向
 
-The project provides a bidirectional adapter without changing the middleware core:
+项目在不修改 Middleware Core 的前提下提供双向 Adapter：
 
 ```text
 ROS2 applications
@@ -16,46 +16,46 @@ mw_ros2_adapter
 Middleware core -> mw_registryd -> UDS or SHM data plane
 ```
 
-The adapter is an independent `ament_cmake` package in
-`ros2_adapter/mw_ros2_adapter`. It calls `find_package(mw CONFIG REQUIRED)` and links the installed
-`mw::mw_core` target. The root CMake build does not enter the ROS package. No core, registry,
-protocol, tool, example, or core test source includes or links ROS2.
+Adapter 是 `ros2_adapter/mw_ros2_adapter` 中独立的 `ament_cmake` package。它调用
+`find_package(mw CONFIG REQUIRED)`，并链接已安装的 `mw::mw_core` target。根 CMake build
+不会进入 ROS package。Core、Registry、Protocol、Tool、Example 和 Core Test 源码都不包含或
+链接 ROS2。
 
-## Supported Message Types
+## 支持的消息类型
 
-The adapter explicitly supports:
+Adapter 明确支持：
 
-| ROS type | Intended use |
+| ROS type | 用途 |
 | --- | --- |
-| `std_msgs/msg/String` | Small text messages |
-| `geometry_msgs/msg/Twist` | Robot velocity commands |
-| `sensor_msgs/msg/Image` | Large sensor payloads |
+| `std_msgs/msg/String` | 小型文本消息 |
+| `geometry_msgs/msg/Twist` | 机器人速度指令 |
+| `sensor_msgs/msg/Image` | 大型 Sensor payload |
 
-Unknown values fail node construction with a diagnostic and nonzero process exit. There is no
-dynamic introspection, plugin loader, IDL compiler, or PointCloud2 support.
+未知值会使 Node 构造失败，输出 diagnostic 并以非零状态退出。系统没有 dynamic introspection、
+plugin loader、IDL compiler 或 PointCloud2 support。
 
-## Serialization And Type Compatibility
+## Serialization 与类型兼容
 
-`MessageCodec` uses the public `rclcpp::Serialization<T>` and `rclcpp::SerializedMessage` APIs. It
-does not implement CDR itself. The serialized ROS representation is the opaque middleware payload.
-Deserialization rejects empty, null, truncated, and incompatible payloads through explicit input
-checks and ROS2 serialization errors.
+`MessageCodec` 使用 Public `rclcpp::Serialization<T>` 和 `rclcpp::SerializedMessage` API，
+不自行实现 CDR。Serialized ROS representation 是不透明的 Middleware payload。Deserialization
+通过显式 input check 和 ROS2 serialization error 拒绝 empty、null、truncated 和 incompatible
+payload。
 
-Middleware registration uses the canonical type above as `type_name`. `type_hash` is a deterministic
-FNV-1a identifier over:
+Middleware 注册使用上述 canonical type 作为 `type_name`。`type_hash` 是对以下文本计算的
+确定性 FNV-1a identifier：
 
 ```text
 mw_ros2_adapter|ros2-cdr|v1|<canonical type name>
 ```
 
-Its printed form starts with `mw_ros2_adapter.cdr.v1.fnv1a64:`. This is a versioned adapter wire
-compatibility identifier. It is not cryptographic and is not a complete ROS IDL schema hash or a
-schema-evolution system. Both bridge directions use the same function, so the existing registry
-continues to enforce exact `type_name + type_hash + transport` compatibility.
+其打印形式以 `mw_ros2_adapter.cdr.v1.fnv1a64:` 开头。这是带版本的 Adapter wire
+compatibility identifier，不具备 cryptographic 安全性，也不是完整 ROS IDL Schema hash 或
+Schema-evolution system。两个 Bridge direction 使用同一函数，因此现有 Registry 继续强制精确
+匹配 `type_name + type_hash + transport`。
 
-## ROS2 To Middleware Flow
+## ROS2 到 Middleware 流程
 
-The bridge executable is `ros2_to_mw_bridge`:
+Bridge executable 为 `ros2_to_mw_bridge`：
 
 ```text
 typed ROS message
@@ -67,12 +67,12 @@ typed ROS message
   -> middleware subscriber
 ```
 
-There is no adapter worker thread. A middleware publish failure is logged with its `ErrorCode`,
-including pool exhaustion, queue full/timeout, connection loss, and registry/type errors.
+Adapter 不包含 worker thread。Middleware Publish failure 会连同对应 `ErrorCode` 一起记录，
+包括 Pool exhaustion、Queue full/timeout、Connection loss 和 Registry/Type error。
 
-## Middleware To ROS2 Flow
+## Middleware 到 ROS2 流程
 
-The bridge executable is `mw_to_ros2_bridge`:
+Bridge executable 为 `mw_to_ros2_bridge`：
 
 ```text
 middleware publisher
@@ -82,51 +82,51 @@ middleware publisher
   -> typed ROS publisher
 ```
 
-A short ROS wall timer performs nonblocking middleware takes and handles at most
-`max_samples_per_poll` samples per callback. It does not create a receive thread. The bridge leaves
-samples in the middleware queue until its ROS publisher sees at least one subscriber, avoiding a
-volatile ROS publication before graph discovery is symmetric.
+一个短周期 ROS wall timer 执行 nonblocking Middleware take，每次 Callback 最多处理
+`max_samples_per_poll` 条 Sample，不创建 Receive thread。在 ROS Publisher 至少发现一个
+Subscriber 前，Bridge 会把 Sample 留在 Middleware Queue，避免 ROS Graph Discovery 对称前
+执行 volatile ROS publish。
 
-## Copy And Loan Boundaries
+## Copy 与 Loan 边界
 
-The native middleware `LoanedSample -> SampleView` SHM path avoids
-middleware payload copies. The ROS2 adapter path is different:
+原生 Middleware `LoanedSample -> SampleView` SHM path 不产生 middleware payload copy。
+ROS2 Adapter path 不同：
 
-- ROS2 to middleware allocates/uses a ROS serialized buffer, then copies that buffer once into the
-  middleware SHM loan.
-- Middleware to ROS2 reads directly from `SampleView`, but copies into storage owned by
-  `rclcpp::SerializedMessage` before ROS deserialization.
-- UDS keeps its kernel/socket and owning-message copies.
+- ROS2 到 Middleware 会分配/使用 ROS serialized buffer，然后把该 Buffer 复制一次到 Middleware
+  SHM Loan。
+- Middleware 到 ROS2 直接从 `SampleView` 读取，但会先复制到
+  `rclcpp::SerializedMessage` 拥有的 storage，再执行 ROS Deserialization。
+- UDS 保留 Kernel/Socket copy 和 owning-message copy。
 
-The ROS2 bridge is not end-to-end zero-copy and makes no performance claim.
+ROS2 Bridge 不是 end-to-end zero-copy，也不做性能声明。
 
-## Parameters
+## 参数
 
-Both executables accept ROS parameters:
+两个 executable 都接受 ROS parameter：
 
-| Parameter | Default | Meaning |
+| Parameter | Default | 含义 |
 | --- | --- | --- |
-| `registry_socket` | `/tmp/mw_registry.sock` | Existing `mw_registryd` control socket |
-| `ros_topic` | `/mw_bridge/ros_data` | Typed ROS topic |
-| `mw_topic` | `/mw_bridge/data` | Middleware topic |
-| `message_type` | `std_msgs/msg/String` | One supported canonical ROS type |
-| `transport` | `shm` | `shm` or `uds` |
-| `max_message_size` | `4194304` | Maximum serialized payload bytes |
-| `mw_node_name` | generated from ROS node/PID | Registry node identity |
-| `mw_socket_path` | generated under `/tmp` | Subscriber data socket path |
+| `registry_socket` | `/tmp/mw_registry.sock` | 已存在的 `mw_registryd` Control Socket |
+| `ros_topic` | `/mw_bridge/ros_data` | 带类型的 ROS Topic |
+| `mw_topic` | `/mw_bridge/data` | Middleware Topic |
+| `message_type` | `std_msgs/msg/String` | 一个受支持的 canonical ROS type |
+| `transport` | `shm` | `shm` 或 `uds` |
+| `max_message_size` | `4194304` | Serialized payload byte 上限 |
+| `mw_node_name` | generated from ROS node/PID | Registry Node identity |
+| `mw_socket_path` | generated under `/tmp` | Subscriber Data Socket path |
 | `ros_qos_depth` | `10` | Reliable ROS KeepLast depth |
-| `queue_depth` | `8` | Middleware SHM subscriber queue depth |
-| `overflow_policy` | `drop_oldest` | `drop_newest`, `drop_oldest`, or `block_with_timeout` |
-| `block_timeout_ms` | `100` | Middleware block-policy deadline |
-| `poll_period_ms` | `2` | Reverse bridge timer period |
-| `max_samples_per_poll` | `16` | Bounded reverse-bridge drain batch |
+| `queue_depth` | `8` | Middleware SHM Subscriber Queue depth |
+| `overflow_policy` | `drop_oldest` | `drop_newest`、`drop_oldest` 或 `block_with_timeout` |
+| `block_timeout_ms` | `100` | Middleware Block Policy deadline |
+| `poll_period_ms` | `2` | Reverse Bridge timer period |
+| `max_samples_per_poll` | `16` | 有界 Reverse Bridge drain batch |
 
-ROS reliable KeepLast QoS and middleware `OverflowPolicy` operate at different layers. They are not
-automatically equivalent and the adapter does not translate one into the other.
+ROS Reliable KeepLast QoS 和 Middleware `OverflowPolicy` 位于不同层。二者不会自动等价，
+Adapter 也不在二者之间进行转换。
 
-## Build And Test
+## 构建与测试
 
-Build and install the core first:
+先构建并安装 Core：
 
 ```bash
 cmake -S . -B .work/public/build_release -DCMAKE_BUILD_TYPE=Release
@@ -135,7 +135,7 @@ ctest --test-dir .work/public/build_release --output-on-failure
 cmake --install .work/public/build_release --prefix "$PWD/.work/public/install"
 ```
 
-Then build the independent adapter package:
+然后构建独立 Adapter package：
 
 ```bash
 source /opt/ros/$ROS_DISTRO/setup.bash
@@ -155,13 +155,13 @@ colcon --log-base .work/public/ros2/log test-result \
 source .work/public/ros2/install/setup.bash
 ```
 
-Tests use an isolated `ROS_DOMAIN_ID`, localhost discovery, unique node/topic/socket names, bounded
-graph polling, and hard timeouts. They launch real registry, bridge, ROS publisher/subscriber, and
-middleware publisher/subscriber processes.
+测试使用隔离的 `ROS_DOMAIN_ID`、localhost Discovery、唯一 Node/Topic/Socket name、有界 Graph
+polling 和 hard timeout。测试会启动真实 Registry、Bridge、ROS Publisher/Subscriber 和
+Middleware Publisher/Subscriber 进程。
 
-## Launch And YAML
+## Launch 与 YAML
 
-The installed launch file starts either direction:
+已安装的 Launch file 可以启动任一 Direction：
 
 ```bash
 ros2 launch mw_ros2_adapter bridge.launch.py \
@@ -173,8 +173,8 @@ ros2 launch mw_ros2_adapter bridge.launch.py \
   transport:=shm
 ```
 
-`config/bridge_examples.yaml` contains both directions for String, Twist, and Image. Select a
-section by remapping the node name and passing the file:
+`config/bridge_examples.yaml` 包含 String、Twist 和 Image 的两个 Direction。通过 remap Node
+name 并传入文件选择一个 Section：
 
 ```bash
 ros2 run mw_ros2_adapter mw_to_ros2_bridge --ros-args \
@@ -182,12 +182,12 @@ ros2 run mw_ros2_adapter mw_to_ros2_bridge --ros-args \
   --params-file .work/public/ros2/install/mw_ros2_adapter/share/mw_ros2_adapter/config/bridge_examples.yaml
 ```
 
-Do not connect an unisolated ROS topic A to middleware topic B in both directions back to the same
-ROS topic A. That creates a feedback loop. Use distinct input and output ROS topic names.
+不要把未隔离的 ROS Topic A 桥接到 Middleware Topic B，然后再反向桥接回同一个 ROS Topic A；
+这会产生 feedback loop。Input 和 Output 应使用不同的 ROS Topic name。
 
 ## String Demo
 
-Start the registry, one forward bridge, and one reverse bridge on separate ROS topics:
+在不同 ROS Topic 上启动 Registry、一个 Forward Bridge 和一个 Reverse Bridge：
 
 ```bash
 ./_install/bin/mw_registryd --socket /tmp/mw_registry.sock
@@ -206,7 +206,7 @@ ros2 topic pub --once /public/string/in std_msgs/msg/String "{data: public-demo}
 
 ## Twist Demo
 
-Use the same topology with `geometry_msgs/msg/Twist` and distinct topics:
+使用相同 Topology、`geometry_msgs/msg/Twist` 和不同 Topic：
 
 ```bash
 ros2 topic echo --once /public/twist/out geometry_msgs/msg/Twist
@@ -214,13 +214,12 @@ ros2 topic pub --once /public/twist/in geometry_msgs/msg/Twist \
   "{linear: {x: 1.25, y: -2.5, z: 0.0}, angular: {x: -0.125, y: 9.75, z: 3.141592653589793}}"
 ```
 
-The automated integration suite validates all six floating-point fields in both directions.
+自动集成测试会双向校验全部六个 floating-point field。
 
 ## Image Demo
 
-Configure the bridge pair with `sensor_msgs/msg/Image`, `/public/image/in`,
-`/public/image/out`, and the same `/public/image` middleware topic. The deterministic integration
-test is the practical large-message demo:
+为 Bridge pair 配置 `sensor_msgs/msg/Image`、`/public/image/in`、`/public/image/out` 和
+相同的 `/public/image` Middleware Topic。确定性集成测试是实际的大消息 Demo：
 
 ```bash
 source /opt/ros/$ROS_DISTRO/setup.bash
@@ -228,28 +227,28 @@ ctest --test-dir .work/public/ros2/build/mw_ros2_adapter \
   -R mw_ros2_adapter_integration_test --output-on-failure
 ```
 
-It sends a 1280x720 `rgb8` Image in both directions and checks timestamp, frame ID, width, height,
-encoding, endian flag, step, data length, and every byte. Raw image data is 2,764,800 bytes and its
-Jazzy serialized payload is 2,764,860 bytes, below the existing 4 MiB limit.
+测试在两个 Direction 发送 1280x720 `rgb8` Image，并校验 Timestamp、Frame ID、Width、Height、
+Encoding、Endian flag、Step、Data length 和每个 Byte。原始 Image data 为 2,764,800 bytes，
+Jazzy serialized payload 为 2,764,860 bytes，低于现有 4 MiB 上限。
 
-## Shutdown And Failures
+## Shutdown 与故障
 
-SIGINT causes `rclcpp` shutdown, executor exit, node destruction, and middleware endpoint/context
-destruction. The core heartbeat thread is RAII-joined. Normal cleanup removes registry records,
-data sockets, queues, and pools. If a bridge is killed with `SIGKILL`, control-connection death
-cleanup removes its exact registered resources; the adapter does not auto-restart.
+SIGINT 会依次触发 `rclcpp` shutdown、Executor exit、Node destruction 和 Middleware
+Endpoint/Context destruction。Core Heartbeat thread 通过 RAII join。正常 Cleanup 会移除
+Registry record、Data Socket、Queue 和 Pool。Bridge 被 `SIGKILL` 时，Control connection
+death cleanup 会移除精确注册资源；Adapter 不会自动重启。
 
-An unavailable registry, unsupported type, invalid parameter, type mismatch, serialization error,
-deserialization error, or middleware publish error produces a diagnostic. Existing contexts do not
-reconnect after a registry daemon restart, matching the documented failure boundary.
+Registry 不可用、不支持的 Type、无效 Parameter、Type mismatch、Serialization error、
+Deserialization error 或 Middleware Publish error 都会产生 diagnostic。Registry daemon 重启
+后，现有 Context 不会重连，这与已记录的 Failure boundary 一致。
 
-## Known Limitations
+## 已知限制
 
-- Only String, Twist, and Image are supported.
-- The type identifier is adapter-specific, not a complete ROS schema hash.
-- ROS serialization/deserialization allocates and copies payload storage.
-- DDS QoS is not mapped to middleware queue policy.
-- No loop detection, dynamic reconfiguration, registry restart recovery, custom RMW, benchmark,
-  profiling, or performance comparison is included.
+- 只支持 String、Twist 和 Image。
+- Type identifier 是 Adapter-specific，不是完整 ROS Schema hash。
+- ROS Serialization/Deserialization 会分配并复制 payload storage。
+- DDS QoS 不会映射到 Middleware Queue Policy。
+- 不包含 Loop detection、dynamic reconfiguration、Registry restart recovery、custom RMW、
+  Benchmark、Profiling 或性能对比。
 
-The bounded end-to-end String bridge demo is documented in [DEMO.md](DEMO.md).
+有界的端到端 String Bridge Demo 见 [Demo](DEMO.md)。

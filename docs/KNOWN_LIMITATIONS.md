@@ -1,74 +1,70 @@
-# Known Limitations
+# 已知限制
 
-These are current implementation boundaries, not planned features.
+以下内容是当前实现边界，不是已计划功能。
 
-## Platform And Scope
+## 平台与范围
 
-- Linux-specific local IPC using Unix Domain Sockets, POSIX shared memory, `epoll`, and pthread
-  process-shared synchronization.
-- One host only. There is no remote transport or distributed discovery.
-- One active publisher per topic and N subscribers. Multi-publisher ordering is not implemented.
-- Shared native atomics and robust pthread objects assume compatible local Linux/compiler ABIs.
-- Normal OS scheduling only; there is no hard real-time guarantee, affinity, isolation, or priority
-  policy.
+- 仅支持 Linux 本机 IPC，使用 Unix Domain Socket、POSIX Shared Memory、`epoll` 和 pthread
+  process-shared synchronization。
+- 仅支持单台主机，不包含远程 Transport 或分布式 Discovery。
+- 每个 Topic 一个 active Publisher 和 N 个 Subscriber；未实现 Multi-Publisher ordering。
+- Shared native atomic 和 robust pthread object 假设兼容的本机 Linux/compiler ABI。
+- 仅使用普通 OS scheduling；不保证 hard real-time，也不设置 affinity、isolation 或 priority
+  policy。
 
-## Delivery Semantics
+## Delivery 语义
 
-- Volatile best-effort behavior bounded by configured queue policies; no persistence, durability,
-  exactly-once delivery, or retransmission protocol.
-- `DROP_NEWEST` and `DROP_OLDEST` intentionally discard endpoint deliveries under pressure.
-- Robust mutex owner-death recovery resets uncertain queue contents and may discard samples.
-- UDS and SHM policy semantics are not a complete equivalent of ROS2 QoS.
-- No security, authentication, authorization, or encryption.
+- Volatile best-effort 行为受已配置 Queue Policy 约束；没有 Persistence、Durability、
+  exactly-once delivery 或 Retransmission Protocol。
+- `DROP_NEWEST` 和 `DROP_OLDEST` 会在压力下有意丢弃 Endpoint delivery。
+- Robust mutex owner-death recovery 会重置不确定的 Queue content，可能丢弃 Sample。
+- UDS 和 SHM Policy semantics 不完全等同于 ROS2 QoS。
+- 不提供 Security、Authentication、Authorization 或 Encryption。
 
-## Copy Boundaries
+## Copy 边界
 
-- UDS copies payload through the socket path and is not zero-copy.
-- SHM `Publisher::publish(data, size)` copies the application buffer once into a pool chunk.
-- Owning `ReceivedMessage` copies bytes out of mapped memory.
-- Only the native SHM `LoanedSample` to `SampleView` path was verified to avoid middleware payload
-  copies.
-- The ROS2 adapter serializes/deserializes and copies adapter buffers. It is not end-to-end
-  zero-copy and is not a custom RMW.
+- UDS 通过 Socket path 复制 payload，不是 zero-copy。
+- SHM `Publisher::publish(data, size)` 把 application buffer 复制一次到 Pool Chunk。
+- Owning `ReceivedMessage` 从 mapped memory 向外复制 byte。
+- 只有原生 SHM `LoanedSample` 到 `SampleView` 路径经过验证，不产生 middleware payload
+  copy。
+- ROS2 Adapter 会 serialize/deserialize 并复制 Adapter buffer。它不是 end-to-end zero-copy，
+  也不是 custom RMW。
 
-## Failure Recovery
+## 故障恢复
 
-- Existing contexts do not automatically reconnect after `mw_registryd` itself is lost or
-  restarted.
-- Recovery covers registered process crashes, exact registered resources, and peer reconciliation;
-  it does not repair host/kernel failure or arbitrary shared-memory corruption.
-- Cleanup never scans all `/dev/shm` or `/tmp` names and cannot reclaim unrelated/preexisting stale
-  resources.
-- The bounded peer-event cache may discard oldest events under extreme churn; current discovery and
-  socket state remain fallback sources.
-- Direct, registry-free UDS mode cannot use registry crash cleanup.
+- `mw_registryd` 自身丢失或重启后，现有 Context 不会自动重连。
+- Recovery 覆盖已注册进程崩溃、精确注册资源和 Peer reconciliation；不修复主机/Kernel 故障
+  或任意 Shared Memory corruption。
+- Cleanup 从不扫描所有 `/dev/shm` 或 `/tmp` Name，无法回收无关或预先存在的 stale resource。
+- 有界 Peer-event cache 在极端 churn 下可能丢弃最旧 Event；当前 Discovery 和 Socket state
+  仍是备用信息来源。
+- 不使用 Registry 的 Direct UDS mode 无法获得 Registry crash cleanup。
 
-## API And Schema
+## API 与 Schema
 
-- Type compatibility is exact `type_name` plus `type_hash`; there is no IDL compiler, dynamic
-  introspection, or schema conversion.
-- Registry requests are synchronous and not multiplexed for concurrent calls on one session.
-- ROS2 adapter support is limited to `std_msgs/msg/String`, `geometry_msgs/msg/Twist`, and
-  `sensor_msgs/msg/Image` on ROS2 Jazzy.
-- PointCloud2 and arbitrary ROS messages are not supported.
+- 类型兼容要求精确匹配 `type_name` 和 `type_hash`；没有 IDL compiler、dynamic
+  introspection 或 Schema conversion。
+- Registry Request 为同步调用，同一 Session 不支持并发 Call multiplexing。
+- ROS2 Adapter 仅支持 ROS2 Jazzy 上的 `std_msgs/msg/String`、`geometry_msgs/msg/Twist` 和
+  `sensor_msgs/msg/Image`。
+- 不支持 PointCloud2 和任意 ROS message。
 
-## Measurement
+## 测量
 
-- The committed reference was measured once on WSL2 with an Intel i5-8300H and normal background
-  scheduling. It is evidence for that configuration, not a universal transport ranking.
-- Throughput-profile latency is systematically sampled and is not a complete tail distribution.
-- Direct ROS2 uses normal `rmw_fastrtps_cpp`; its results include ROS serialization/DDS behavior.
-- `perf` and `strace` were unavailable during profiling. Analysis used benchmark deltas, `/proc`
-  counters, 100 ms wait-channel samples, and source inspection, so no symbol-level CPU or dynamic
-  syscall ranking is claimed.
-- RSS includes process/library mappings and finite configured SHM mappings; it is not only live
-  payload bytes.
+- 已提交 reference 在 WSL2、Intel i5-8300H 和普通后台 scheduling 环境中测量一次。它是该配置
+  的证据，不代表普遍的 Transport ranking。
+- Throughput profile latency 采用系统抽样，不是完整 tail distribution。
+- direct ROS2 使用普通 `rmw_fastrtps_cpp`；结果包含 ROS serialization/DDS behavior。
+- Profiling 时无法使用 `perf` 和 `strace`。分析依据 Benchmark delta、`/proc` counter、
+  100 ms wait-channel sample 和源码检查，因此不声称 symbol-level CPU 或 dynamic syscall
+  ranking。
+- RSS 包含 Process/Library mapping 和有限的已配置 SHM mapping，不只包含活动 payload byte。
 
-## Not Implemented
+## 未实现
 
-Lock-free/SPSC replacement, `eventfd`, `SCM_RIGHTS`, `memfd_create`, per-thread allocator caches,
-custom CPU scheduling, multi-publisher semantics, TCP, custom RMW, DDS/RTPS, persistence, security,
-and distributed recovery are not implemented. They belong to possible future investigation only
-after evidence and explicit scope approval.
+未实现 lock-free/SPSC replacement、`eventfd`、`SCM_RIGHTS`、`memfd_create`、per-thread
+allocator cache、custom CPU scheduling、Multi-Publisher semantics、TCP、custom RMW、DDS/RTPS、
+Persistence、Security 和分布式 Recovery。只有获得证据和明确范围批准后，才可能进一步研究。
 
-The project license has not been selected by the owner.
+项目许可证尚未由维护者选择。
