@@ -2,29 +2,20 @@
 
 一个面向 Linux 机器人软件的 C++17 本机多进程 Pub/Sub 中间件。系统将版本化 Unix Domain
 Socket 控制面与 UDS/Shared Memory 数据面分离，提供有界的消息所有权、故障恢复、独立的
-ROS2 Adapter，以及可复现的跨进程 Benchmark。
-
-## 项目解决的问题
-
-机器人进程既要传输小型控制消息，也要传输数 MiB 的图像。真正困难的部分不只是调用
-`mmap`，还包括发现与类型匹配、消息生命周期、多读者所有权、慢 Subscriber、有界内存、
-进程退出和可复核的测量。本项目把这些机制直接实现出来，使每次复制、等待和资源释放都
-能够解释和测试。
+ROS2 适配器，以及可复现的跨进程 Benchmark。
 
 ## 核心能力
 
 - C++17 `mw_core` 动态库，支持 CMake install/export，目标名为 `mw::mw_core`
 - `Context`、move-only `Publisher`/`Subscriber`、`LoanedSample` 和 `SampleView`
-- 单线程 `epoll` Registry，支持 Node/Topic/Endpoint 发现和严格类型匹配
-- 直接配置或 Registry 发现的 UDS copied-payload 基线
-- 预分配 POSIX SHM Memory Pool、五种 size class 和 generation 保护的 Chunk
-- 一个共享 payload 配合 N 个 Subscriber 的独立有界队列
+- 单线程 `epoll` Registry，支持 Node/Topic/端点发现和严格类型匹配
+- 直接配置或 Registry 发现的 UDS 拷贝数据基线
+- 预分配 POSIX SHM Memory Pool；一个 payload 可通过独立有界队列供 N 个 Subscriber 读取
 - `DROP_NEWEST`、`DROP_OLDEST`、`BLOCK_WITH_TIMEOUT` Backpressure
-- ALIVE/SUSPECTED/DEAD Heartbeat lease，以及真实 `SIGKILL` 后的资源和引用恢复
+- ALIVE/SUSPECTED/DEAD Heartbeat 租约，以及真实 `SIGKILL` 后的资源和引用恢复
 - `mwctl` Node/Topic/Stats 查询
-- 独立的 ROS2 Jazzy Adapter，支持 String、Twist、Image 双向桥接
-- 441 次优化后 Benchmark，对比 UDS、SHM Copy、SHM Loan 和 direct ROS2
-- Debug、ASan、UBSan、跨进程、故障注入和 ROS2 集成测试
+- 独立的 ROS2 Jazzy 适配器，支持 String、Twist、Image 双向桥接
+- 可复现 Benchmark 与 Debug、ASan、UBSan、跨进程、故障注入和 ROS2 集成测试
 
 ## 架构
 
@@ -43,20 +34,13 @@ flowchart LR
     Adapter --> API
 ```
 
-`mw_registryd` 只存储身份和 Endpoint 描述，不转发业务 payload。ROS2 Adapter 依赖安装后的
+`mw_registryd` 只存储身份和端点描述，不转发业务 payload。ROS2 适配器依赖安装后的
 `mw::mw_core`，Core 不包含也不链接 ROS2。详见 [架构文档](docs/ARCHITECTURE.md)，其中包含
 组件、进程/线程、所有权和依赖边界。
 
-## Control Plane
-
-协议版本 5 使用 16 字节 big-endian Header，包含 magic、version、opcode、request ID 和有界
-payload size。支持 Node 注册、Topic advertisement/subscription、Discovery、Heartbeat、
-peer-death event、Node/Topic 查询和 Registry Stats。Topic、type name、type hash、transport
-必须严格匹配；一个 Topic 允许一个 active Publisher 向 N 个 Subscriber fan-out。
-
-已建立连接的 SHM Publisher 会在最多 1 ms 内复用兼容 Discovery；无连接、失败、断开或 peer
-事件会立即触发刷新。详见 [Protocol](docs/PROTOCOL.md) 和
-[Control Plane](docs/CONTROL_PLANE.md)。
+控制面负责注册、发现、类型匹配、Heartbeat 和故障事件；数据面负责 UDS 帧或 SHM
+Pool/Queue。一个 Topic 允许一个 active Publisher 向 N 个 Subscriber 扇出。协议细节见
+[Protocol](docs/PROTOCOL.md) 和 [Control Plane](docs/CONTROL_PLANE.md)。
 
 ## Data Plane
 
@@ -66,7 +50,7 @@ peer-death event、Node/Topic 查询和 Registry Stats。Topic、type name、typ
 - **Receive**：`SampleView` 直接读取映射区域；`ReceivedMessage` 是 owning-copy 兼容接口。
 
 已验证原生 SHM `LoanedSample` 到 `SampleView` 的路径不产生 middleware payload copy。整个中间件
-并非 zero-copy：UDS、SHM Copy、owning receive 和 ROS2 Adapter serialization 都保留各自的复制
+并非 zero-copy：UDS、SHM Copy、owning receive 和 ROS2 适配器序列化都保留各自的复制
 边界。详见 [Data Plane](docs/DATA_PLANE.md)。
 
 ## Publisher / Subscriber API
@@ -79,8 +63,14 @@ publisher_config.transport = mw::TransportType::SharedMemory;
 auto publisher = context.createPublisher("/camera/image", publisher_config);
 
 auto loan = publisher.loan(image_size);
+if (!loan) {
+    throw mw::MiddlewareError{loan.error(), mw::errorMessage(loan.error())};
+}
 fill_image(loan.data(), loan.size());
-mw::PublishResult result = loan.publish();
+const auto result = loan.publish();
+if (!result) {
+    throw mw::MiddlewareError{result.error, mw::errorMessage(result.error)};
+}
 ```
 
 ```cpp
@@ -97,51 +87,8 @@ if (view) {
 }
 ```
 
-构造和 Control 错误使用 `MiddlewareError`；发布返回 `PublishResult`；接收返回 optional，并
-通过 `lastError()` 暴露错误。
-
-## Shared Memory Layout
-
-一个 Publisher Pool 包含编码后的 Header、size-class metadata、Chunk directory 和对齐的
-`ChunkHeader + payload` 存储。默认容量为 256 B、4 KiB、64 KiB、1 MiB、4 MiB。每个 Subscriber
-拥有独立的固定容量 SHM Queue，Queue 中只存逻辑 Handle。
-
-跨进程 Chunk 身份是 `(pool_id, chunk_index, generation, payload_offset)`，绝不使用虚拟地址
-相等性。详见 [Memory Model](docs/MEMORY_MODEL.md) 和 [Memory Pool](docs/MEMORY_POOL.md)。
-
-## Message Lifecycle 与多 Subscriber 共享
-
-```text
-FREE -> LOANED -> PUBLISHED -> RELEASED -> FREE
-```
-
-发布时持有 guard reference，并把同一个 Handle 放入所有接受该消息的 Subscriber Queue。每个
-Endpoint 持有一个有界 outstanding obligation；`SampleView` 恰好释放一次，最后一个有效 release
-使 Publisher 回收该 generation。未发布的 Loan 通过 RAII 取消。详见
-[Message Lifecycle](docs/MESSAGE_LIFECYCLE.md)。
-
-## Backpressure
-
-每个 SHM Subscriber 独立选择 Queue depth 和策略：
-
-| 策略 | Queue 满时的行为 |
-| --- | --- |
-| `DROP_NEWEST` | 保留已有 Handle，拒绝新的 Endpoint delivery |
-| `DROP_OLDEST` | 释放最旧的 Endpoint obligation，加入最新消息 |
-| `BLOCK_WITH_TIMEOUT` | 在 monotonic deadline 前等待空间，随后接受、关闭或超时 |
-
-Queue 使用 robust process-shared mutex 和 condition variable，而不是未经证据验证的 lock-free
-算法。详见 [Queues And Loaning](docs/QUEUES_AND_LOANING.md)。
-
-## Failure Model
-
-每个 Registry session 有一个 primary Control connection 和一个 Heartbeat thread。Primary
-EOF/HUP 立即触发清理；lease 超时使状态从 ALIVE 变为 SUSPECTED，最终变为 DEAD。Registry 删除
-精确登记的名称并通知 Peer。Publisher 通过有界 outstanding-handle tracking 修复 dead
-Subscriber 的引用；robust Queue recovery 会重置不确定的 Ring metadata 并唤醒阻塞 Producer。
-
-Publisher 和 Subscriber replacement 都有测试。现有 Context 不会在 Registry daemon 丢失后自动
-重连。详见 [Failure Model](docs/FAILURE_MODEL.md)。
+构造和控制操作错误使用 `MiddlewareError`；发布返回 `PublishResult`；接收返回 optional，并
+通过 `lastError()` 暴露错误。内存布局、生命周期、队列策略和故障边界见对应的专题文档。
 
 ## 构建与测试
 
@@ -178,22 +125,12 @@ Registry 运行时可执行：
 .work/public/build_release/bin/mwctl stats
 ```
 
-非默认 Control Socket 可在命令前使用 `--registry PATH`。`stats` 输出当前 Node/Topic/
-Publisher/Subscriber 数量，以及 Heartbeat receive、SUSPECTED transition、dead-node 的生命
-周期计数。每次发布的 drop/block/allocation 结果仍由 `PublishResult` 和 Benchmark artifact
-提供；这不是通用 Metrics exporter。
+非默认控制 Socket 可在命令前使用 `--registry PATH`。`stats` 输出当前 Node/Topic/
+Publisher/Subscriber 数量，以及 Heartbeat、SUSPECTED、dead-node 的生命周期计数；这不是通用
+Metrics exporter。
 
-## Install / External Consumer
-
-```bash
-cmake --install .work/public/build_release --prefix .work/public/install
-cmake -S examples/external_consumer -B .work/public/external_consumer \
-  -DCMAKE_PREFIX_PATH="$PWD/.work/public/install"
-cmake --build .work/public/external_consumer -j
-.work/public/external_consumer/mw_external_consumer
-```
-
-外部 CMake 项目使用 `find_package(mw CONFIG REQUIRED)` 并链接 `mw::mw_core`。
+安装后可由外部 CMake 项目通过 `find_package(mw CONFIG REQUIRED)` 链接 `mw::mw_core`；完整
+安装和消费者验证命令见 [Development Workflow](docs/DEVELOPMENT_WORKFLOW.md)。
 
 ## ROS2 Adapter
 
@@ -209,14 +146,10 @@ serialization/deserialization 会产生复制；它不是 custom RMW，也不是
 
 ## Benchmark 方法
 
-完整矩阵对比 UDS、SHM Copy、SHM Loan 和 direct ROS2 `rmw_fastrtps_cpp`，覆盖 64 B、1 KiB、
-4 KiB、64 KiB、1 MiB、4 MiB，1-to-1/2/4 Subscriber，fixed-rate latency、maximum-rate
-throughput 和三次 repetition。Warmup、Discovery、Cooldown 不计入五秒 measurement window。
-Payload、monotonic timestamp、sequence、CPU、RSS、drop、overflow、allocation 和 blocking 均
-经过校验。
-
-direct ROS2 baseline 使用 `UInt8MultiArray`，不经过 Adapter。公平性与指标定义见
-[Benchmark](docs/BENCHMARK.md)。
+完整矩阵对比 UDS、SHM Copy、SHM Loan 和 direct ROS2 `rmw_fastrtps_cpp`，覆盖 64 B 到 4 MiB、
+1/2/4 个 Subscriber、fixed-rate latency、maximum-rate throughput 和三次 repetition。Warmup、
+Discovery、Cooldown 不计入 measurement window；Payload、sequence、CPU、RSS、drop、overflow、
+allocation 和 blocking 均经过校验。指标定义与复现实验见 [Benchmark](docs/BENCHMARK.md)。
 
 ## Benchmark 结果
 
@@ -236,7 +169,7 @@ ROS2 Jazzy、`rmw_fastrtps_cpp`。以下是 1-to-1 median；latency 为 fixed-ra
 的 p50 比 UDS 低 3.28x/7.49x，吞吐高 35%/37%。代价是 SHM mapping 增加了 RSS：4 MiB 时
 Publisher+Subscriber 峰值约为 92.8 MiB，UDS 约为 16.3 MiB。
 
-Fanout 会增加 aggregate delivery，但会降低 Publisher logical rate。4 MiB 1-to-4 的 aggregate
+扇出会增加 aggregate delivery，但会降低 Publisher logical rate。4 MiB 1-to-4 的 aggregate
 delivery 为 UDS 2562.6、Copy 4146.6、Loan 4224.7 MiB/s。direct ROS2 maximum-rate case
 记录了 accounted sequence gaps，其 QoS 不宣称与自定义 Queue policy 等价。
 
@@ -258,9 +191,8 @@ Control round trip 大幅减少，同时保留失败时的即时失效。更高�
 64 KiB 分别从 8.2k/8.5k 提升到 17.4k/17.1k。1 MiB 和 4 MiB 吞吐变化小于 1%，符合
 payload/consumer 限制以及复用窗口在消息间失效的现象。
 
-实验环境没有 `perf` 和 `strace`。Profiling 使用 Benchmark delta、`/proc` CPU/fault/context
-switch counter、100 ms wait-channel sample 和 source inspection，因此不声称 symbol hotspot
-或 dynamic syscall ranking。详见 [Benchmark](docs/BENCHMARK.md) 与
+实验环境没有 `perf` 和 `strace`。Profiling 使用 Benchmark delta、`/proc` counter、100 ms
+wait-channel sample 和源码检查，不声称 symbol hotspot 或 dynamic syscall ranking；证据见
 [`benchmark/profiling/`](benchmark/profiling/)。
 
 ## Demo
@@ -276,29 +208,22 @@ MW_BUILD_DIR="$PWD/.work/public/build_release" scripts/demo/run_all_smoke.sh
 
 ## 文档导航
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Protocol](docs/PROTOCOL.md)
-- [Control Plane](docs/CONTROL_PLANE.md)
-- [Data Plane](docs/DATA_PLANE.md)
-- [Memory Model](docs/MEMORY_MODEL.md)
-- [Message Lifecycle](docs/MESSAGE_LIFECYCLE.md)
-- [Memory Pool](docs/MEMORY_POOL.md)
-- [Queues And Loaning](docs/QUEUES_AND_LOANING.md)
-- [Failure Model](docs/FAILURE_MODEL.md)
-- [ROS2 Adapter](docs/ROS2_ADAPTER.md)
-- [Benchmark](docs/BENCHMARK.md)
-- [Known Limitations](docs/KNOWN_LIMITATIONS.md)
+- 架构与协议：[Architecture](docs/ARCHITECTURE.md)、[Protocol](docs/PROTOCOL.md)、
+  [Control Plane](docs/CONTROL_PLANE.md)、[Data Plane](docs/DATA_PLANE.md)
+- 内存与生命周期：[Memory Model](docs/MEMORY_MODEL.md)、[Message Lifecycle](docs/MESSAGE_LIFECYCLE.md)、
+  [Memory Pool](docs/MEMORY_POOL.md)、[Queues And Loaning](docs/QUEUES_AND_LOANING.md)
+- 故障与适配：[Failure Model](docs/FAILURE_MODEL.md)、[ROS2 Adapter](docs/ROS2_ADAPTER.md)
+- 测量与边界：[Benchmark](docs/BENCHMARK.md)、[Known Limitations](docs/KNOWN_LIMITATIONS.md)
 
 ## 已知限制
 
 仅支持 Linux/单机；每个 Topic 只允许一个 active Publisher；不提供 durability、retransmission、
 security、分布式 transport、Registry daemon 丢失后的自动 Context recovery 或 hard real-time
-guarantee；依赖本机 pthread/atomic ABI；ROS2 Adapter 仅支持三种类型并保留 serialization
-copy；参考结果来自 WSL2，未做 CPU isolation；实验环境没有 `perf`/`strace`。
+guarantee；ROS2 适配器仅支持 String、Twist、Image 并保留 serialization copy。参考结果来自
+WSL2，未做 CPU isolation；实验环境没有 `perf`/`strace`。
 详见 [Known Limitations](docs/KNOWN_LIMITATIONS.md)。
 
 ## 后续工作
 
-可能的后续方向包括 native Linux perf/strace、event-driven Discovery、`eventfd`、有证据支持的
-SPSC/allocator 改进、PointCloud2、多 Publisher 语义、远程 transport、CI 和 Registry restart
-recovery。它们都不是当前功能。
+后续可考虑 native Linux perf/strace、event-driven Discovery、`eventfd`、SPSC/allocator 改进、
+PointCloud2、多 Publisher 语义、远程 transport 和 Registry restart recovery；这些都不是当前功能。

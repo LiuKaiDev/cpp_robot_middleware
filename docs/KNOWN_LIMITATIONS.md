@@ -6,7 +6,7 @@
 
 - 仅支持 Linux 本机 IPC，使用 Unix Domain Socket、POSIX Shared Memory、`epoll` 和 pthread
   process-shared synchronization。
-- 仅支持单台主机，不包含远程 Transport 或分布式 Discovery。
+- 仅支持单台主机，不包含远程传输或分布式发现。
 - 每个 Topic 一个 active Publisher 和 N 个 Subscriber；未实现 Multi-Publisher ordering。
 - Shared native atomic 和 robust pthread object 假设兼容的本机 Linux/compiler ABI。
 - 仅使用普通 OS scheduling；不保证 hard real-time，也不设置 affinity、isolation 或 priority
@@ -19,6 +19,8 @@
 - `DROP_NEWEST` 和 `DROP_OLDEST` 会在压力下有意丢弃 Endpoint delivery。
 - Robust mutex owner-death recovery 会重置不确定的 Queue content，可能丢弃 Sample。
 - UDS 和 SHM Policy semantics 不完全等同于 ROS2 QoS。
+- Registry 模式的 UDS Publisher 初次解析会连接当时发现的全部 Subscriber；只要仍有连接，
+  晚加入的 Subscriber 不会自动加入现有扇出集合。
 - 不提供 Security、Authentication、Authorization 或 Encryption。
 
 ## Copy 边界
@@ -46,9 +48,8 @@
 - 类型兼容要求精确匹配 `type_name` 和 `type_hash`；没有 IDL compiler、dynamic
   introspection 或 Schema conversion。
 - Registry Request 为同步调用，同一 Session 不支持并发 Call multiplexing。
-- ROS2 Adapter 仅支持 ROS2 Jazzy 上的 `std_msgs/msg/String`、`geometry_msgs/msg/Twist` 和
-  `sensor_msgs/msg/Image`。
-- 不支持 PointCloud2 和任意 ROS message。
+- ROS2 Adapter 仅适配 ROS2 Jazzy 上的 `std_msgs/msg/String`、`geometry_msgs/msg/Twist` 和
+  `sensor_msgs/msg/Image`；`sensor_msgs/msg/PointCloud2` 及其他 ROS2 消息类型不受支持。
 
 ## 测量
 
@@ -65,6 +66,4 @@
 
 未实现 lock-free/SPSC replacement、`eventfd`、`SCM_RIGHTS`、`memfd_create`、per-thread
 allocator cache、custom CPU scheduling、Multi-Publisher semantics、TCP、custom RMW、DDS/RTPS、
-Persistence、Security 和分布式 Recovery。只有获得证据和明确范围批准后，才可能进一步研究。
-
-项目许可证尚未由维护者选择。
+Persistence、Security 和分布式 Recovery。这些能力不在当前版本范围内。

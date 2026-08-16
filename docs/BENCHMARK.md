@@ -9,7 +9,7 @@ latency、delivered throughput、CPU、RSS、loss、overflow、allocation failur
 Startup/Discovery latency 不在矩阵内。Benchmark 不根据分数调整 Scheduler、绑定 CPU 或引入
 lock-free structure。Profiling 运行及可用工具在后文单独说明。
 
-## Transport 定义
+## 传输方式
 
 | Name | Publisher path | Subscriber path |
 | --- | --- | --- |
@@ -18,8 +18,8 @@ lock-free structure。Profiling 运行及可用工具在后文单独说明。
 | `shm_loan` | direct fill of `LoanedSample::data()` -> publish | `SampleView` |
 | `ros2` | direct `rclcpp` publish of `UInt8MultiArray` | direct `rclcpp` subscription |
 
-两种 SHM mode 共享 Registry、Memory Pool、有界 Handle Queue 和 Subscriber View 代码；预期差异
-仅在 Publisher input path。SHM Copy 不会额外执行 owning Subscriber copy；SHM Loan 不会分配
+两种 SHM 模式共享 Registry、Memory Pool、有界 Handle Queue 和 Subscriber View 代码；预期差异
+仅在 Publisher 输入路径。SHM Copy 不会额外执行 owning Subscriber copy；SHM Loan 不会分配
 与消息等大的完整 application vector，再将其复制进 Loan。
 
 ROS2 Baseline 是 `benchmark/ros2` 下的独立 ament package。它使用 ROS2 Jazzy、
@@ -29,16 +29,16 @@ ROS2 Baseline 是 `benchmark/ros2` 下的独立 ament package。它使用 ROS2 J
 
 ## 公平性控制
 
-所有被比较的主 Case 使用同一次 Host session、Source revision、精确 application payload size、
-timing segment、profile 和逻辑 payload。Runner 按 `config.json` 中记录的确定性 shuffle seed
+所有被比较的主用例使用同一次主机执行会话、源码版本、精确 application payload size、
+时间片段、指标模式和逻辑 payload。Runner 按 `config.json` 中记录的确定性 shuffle seed
 交错执行 Transport，不会把同一种 Transport 全部集中执行。ROS2 使用隔离并记录的
 `ROS_DOMAIN_ID` 和 localhost Discovery。
 
-所有 Performance binary 都是关闭 Sanitizer 和 Coverage 的 Release build。Debug、ASan、UBSan
+所有性能程序都是关闭 Sanitizer 和 Coverage 的 Release build。Debug、ASan、UBSan
 和 Adapter 测试仅用于正确性回归，其数字绝不作为性能结果。保留 Fast DDS 的普通/默认行为，
 不启用特殊 Fast DDS SHM profile。
 
-主对比使用 Queue depth 8。SHM 使用 `BLOCK_WITH_TIMEOUT`，Timeout 为 100 ms；ROS2 使用
+主对比使用 Queue depth 8。SHM 使用 `BLOCK_WITH_TIMEOUT`，超时为 100 ms；ROS2 使用
 Reliable KeepLast depth 8。UDS 为每个 Subscriber 使用一条 Socket connection，没有 SHM Ring
 Policy。这些设置力求完成消息传递，但不声称 ROS QoS 与 Middleware Overflow Policy 在语义上
 等价。
@@ -79,9 +79,9 @@ Validation 或可选的 Slow-consumer delay。
 offered rate。完整默认值是：4 KiB 及以下 1000 Hz，64 KiB 为 500 Hz，1 MiB 为 50 Hz，
 4 MiB 为 10 Hz。Throughput profile 在固定窗口内以实现能够安全承受的最高速度 Publish。
 
-每个完整主 Case 包含 2 second warmup、5 second measurement、1 second cooldown 和三次
-repetition。Startup、Registry/Pool construction、Endpoint Discovery 和 ROS Discovery 都在
-Warmup 前完成。Summary 只统计独立 measurement range 中的 Sequence。
+每个完整主用例包含 2 秒 warmup、5 秒 measurement、1 秒 cooldown 和三次 repetition。启动、
+Registry/Pool 构造、端点发现和 ROS 发现都在 Warmup 前完成。汇总只统计独立 measurement range
+中的 Sequence。
 
 对于 Latency，每条正确接收的 measurement message 都可进入 Sample；对于 Throughput，采样第一
 条正确消息以及此后每第 1000 条消息。Sample 保存在预分配的有界 Memory 中，并在停止 Delivery
@@ -139,9 +139,9 @@ Owner/Registry cleanup 负责。
 缺失、Payload/Sequence corruption、Latency storage overflow，或 Test resource 残留。明确计数
 的 Sequence gap 和 Policy drop 仍是有效结果。
 
-## 结果
+## 结果与产物
 
-Raw data 只保存在本机，并被 Git 忽略：
+原始数据只保存在本机，并被 Git 忽略：
 
 ```text
 benchmark/results/<run_id>/

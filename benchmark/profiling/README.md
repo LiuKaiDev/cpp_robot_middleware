@@ -47,5 +47,5 @@ python3 benchmark/profiling/run_profile.py \
 
 输出根目录必须尚不存在。Observer 使用 `benchmark/configs/full.json` 中的时间参数和 Queue
 配置，每个 case 执行一次 profiling repetition；如果某次运行无效或被测子进程集合不精确，
-脚本会直接失败。只有在仓库维护者批准后才安装和使用 `perf` 或 `strace`；不要把这些备用证据
-标记为上述任一工具的输出。
+脚本会直接失败。当前环境没有 `perf` 或 `strace`，因此备用 observer 的结果不会标记为这两种
+工具的输出。

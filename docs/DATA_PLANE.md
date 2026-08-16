@@ -2,11 +2,11 @@
 
 ## 范围
 
-v1 Data Plane 提供两种可独立选择的 Linux 本机 payload transport，并包含 Copy/Loan 选择和
-Peer crash recovery：
+v1 数据面提供两种可独立选择的 Linux 本机 payload 传输方式，并包含 Copy/Loan 选择和
+Peer 崩溃恢复：
 
-- `TransportType::UnixDomainSocket` 是 copied UDS baseline。
-- `TransportType::SharedMemory` 是由 Registry 发现的预分配 POSIX SHM Pool transport。
+- `TransportType::UnixDomainSocket` 是通过 UDS 复制 payload 的基线。
+- `TransportType::SharedMemory` 使用由 Registry 发现的预分配 POSIX SHM Pool。
 
 两种模式下 Registry Control Plane 都使用 UDS。SHM mode 还保留 Publisher 到 Subscriber 的
 direct UDS connection，用于固定 Wake/Release metadata；业务 payload byte 在 SHM mode 下
@@ -14,10 +14,11 @@ direct UDS connection，用于固定 Wake/Release metadata；业务 payload byte
 
 ## UDS 基线
 
-UDS path 发送显式编码的 24-byte `MW01` Header，随后发送恰好 `payload_size` 个字节。
-Subscriber 递增接收 stream，并返回 owning `ReceivedMessage`。Direct mode 支持这条 baseline；
-Registry mode 也可通过 `TransportType::UnixDomainSocket` 选择它。该路径选择一个已发现
-Subscriber。
+UDS 路径发送显式编码的 24-byte `MW01` Header，随后发送恰好 `payload_size` 个字节。
+Subscriber 递增接收 stream，并返回 owning `ReceivedMessage`。直接模式通过
+`PublisherConfig::socket_path` 连接一个明确指定的 Subscriber；Registry 模式初次解析时会连接
+当时返回的全部兼容 Subscriber。只要 Publisher 仍保有至少一条 UDS 连接，就不会周期性刷新
+发现结果，因此晚加入的 Subscriber 不会自动加入现有扇出集合。
 
 ## SHM Pool 架构
 

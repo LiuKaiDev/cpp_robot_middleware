@@ -49,4 +49,4 @@ ROS2 Adapter 是独立的 ament package，必须针对已安装的 Core 构建�
 
 Commit 应目的单一，并保留工作树中无关的改动；根据变更触及的所有权和进程边界选择相应检查。
 不要提交 `.work/`、原始 Benchmark 矩阵、coverage 输出、profiler 输出、构建目录或生成的 ROS
-日志。除非仓库维护者明确要求，否则不要创建 tag 或 push。
+日志。
