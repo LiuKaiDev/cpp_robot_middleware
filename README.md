@@ -1,19 +1,20 @@
 # C++ 高性能发布订阅通信中间件与 ROS2 适配框架
 
+[![Core CI](https://github.com/LiuKaiDev/cpp_robot_middleware/actions/workflows/core-ci.yml/badge.svg)](https://github.com/LiuKaiDev/cpp_robot_middleware/actions/workflows/core-ci.yml)
+
 一个面向 Linux 机器人软件的 C++17 本机多进程 Pub/Sub 中间件。系统将版本化 Unix Domain
-Socket 控制面与 UDS/Shared Memory 数据面分离，提供有界的消息所有权、故障恢复、独立的
-ROS2 适配器，以及可复现的跨进程 Benchmark。
+Socket 控制面与 UDS/Shared Memory 数据面分离，提供有界的消息所有权、故障恢复、独立的 ROS2
+适配器，以及可复现的跨进程 Benchmark。
 
 ## 核心能力
 
 - C++17 `mw_core` 动态库，支持 CMake install/export，目标名为 `mw::mw_core`
 - `Context`、move-only `Publisher`/`Subscriber`、`LoanedSample` 和 `SampleView`
-- 单线程 `epoll` Registry，支持 Node/Topic/端点发现和严格类型匹配
+- 单线程 `epoll` Registry，支持 Node/Topic/端点发现、严格类型匹配和 `mwctl` 查询
 - 直接配置或 Registry 发现的 UDS 拷贝数据基线
 - 预分配 POSIX SHM Memory Pool；一个 payload 可通过独立有界队列供 N 个 Subscriber 读取
 - `DROP_NEWEST`、`DROP_OLDEST`、`BLOCK_WITH_TIMEOUT` Backpressure
 - ALIVE/SUSPECTED/DEAD Heartbeat 租约，以及真实 `SIGKILL` 后的资源和引用恢复
-- `mwctl` Node/Topic/Stats 查询
 - 独立的 ROS2 Jazzy 适配器，支持 String、Twist、Image 双向桥接
 - 可复现 Benchmark 与 Debug、ASan、UBSan、跨进程、故障注入和 ROS2 集成测试
 
@@ -98,8 +99,9 @@ cmake --build .work/public/build_debug -j
 ctest --test-dir .work/public/build_debug --output-on-failure
 ```
 
-项目代码使用 `-Wall -Wextra -Wpedantic` 编译。CMake 选项 `ENABLE_ASAN` 和 `ENABLE_UBSAN` 可
-分别生成 sanitizer 构建。
+项目代码使用 `-Wall -Wextra -Wpedantic` 编译。CMake 选项 `ENABLE_ASAN` 和 `ENABLE_UBSAN`
+可生成 sanitizer 构建。Core CI 检查 Debug Core 与全量 CTest、Release 安装导出和外部消费者、
+ASan、UBSan 及 Markdown 本地链接；它明确不运行 ROS2 或 benchmark。
 
 ## 快速运行
 
@@ -221,7 +223,6 @@ MW_BUILD_DIR="$PWD/.work/public/build_release" scripts/demo/run_all_smoke.sh
 security、分布式 transport、Registry daemon 丢失后的自动 Context recovery 或 hard real-time
 guarantee；ROS2 适配器仅支持 String、Twist、Image 并保留 serialization copy。参考结果来自
 WSL2，未做 CPU isolation；实验环境没有 `perf`/`strace`。
-详见 [Known Limitations](docs/KNOWN_LIMITATIONS.md)。
 
 ## 后续工作
 

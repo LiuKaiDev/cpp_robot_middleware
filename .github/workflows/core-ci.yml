@@ -1,0 +1,130 @@
+name: Core CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-debug:
+    name: Core Debug
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install core dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential cmake ninja-build python3 libgtest-dev
+
+      - name: Configure Debug build
+        run: cmake -S . -B .work/ci/debug -G Ninja -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build Debug core
+        run: cmake --build .work/ci/debug --parallel
+
+      - name: Run Debug tests
+        run: ctest --test-dir .work/ci/debug --output-on-failure
+
+      - name: Validate Markdown links
+        run: >-
+          python3 scripts/validate_markdown_links.py
+          README.md docs benchmark/profiling
+          benchmark/results/reference_baseline
+          benchmark/results/reference_current
+
+  release-package:
+    name: Release install and external consumer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install core dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential cmake ninja-build python3 libgtest-dev
+
+      - name: Configure Release package
+        run: cmake -S . -B .work/ci/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+
+      - name: Build Release package
+        run: cmake --build .work/ci/release --parallel
+
+      - name: Install exported package
+        run: cmake --install .work/ci/release --prefix .work/ci/install
+
+      - name: Build external consumer against installed package
+        run: >-
+          cmake -S examples/external_consumer
+          -B .work/ci/external-consumer
+          -G Ninja
+          -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/.work/ci/install"
+
+      - name: Build external consumer
+        run: cmake --build .work/ci/external-consumer --parallel
+
+      - name: Run external consumer
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/.work/ci/install/lib
+        run: .work/ci/external-consumer/mw_external_consumer
+
+  sanitizer:
+    name: Sanitizer (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ASan
+            option: ENABLE_ASAN
+            asan_options: detect_leaks=1:halt_on_error=1
+            ubsan_options: ""
+          - name: UBSan
+            option: ENABLE_UBSAN
+            asan_options: ""
+            ubsan_options: halt_on_error=1:print_stacktrace=1
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install core dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential cmake ninja-build python3 libgtest-dev
+
+      - name: Configure sanitizer build
+        run: >-
+          cmake -S . -B .work/ci/sanitizer-${{ matrix.name }} -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug -D${{ matrix.option }}=ON
+
+      - name: Build sanitizer core
+        run: cmake --build .work/ci/sanitizer-${{ matrix.name }} --parallel
+
+      - name: Run sanitizer tests
+        env:
+          ASAN_OPTIONS: ${{ matrix.asan_options }}
+          UBSAN_OPTIONS: ${{ matrix.ubsan_options }}
+        run: ctest --test-dir .work/ci/sanitizer-${{ matrix.name }} --output-on-failure
