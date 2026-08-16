@@ -4,7 +4,7 @@
   <version>0.1.0</version>
   <description>Bidirectional ROS 2 adapter for cpp_robot_middleware.</description>
   <maintainer email="wyu26779@gmail.com">LiuKaiDev</maintainer>
-  <license>TODO</license>
+  <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
