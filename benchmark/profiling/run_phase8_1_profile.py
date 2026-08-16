@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the Phase 8.1 representative matrix with external /proc observation."""
+"""Run the representative profiling matrix with external /proc observation."""
 
 from __future__ import annotations
 

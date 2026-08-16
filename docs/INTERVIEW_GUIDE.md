@@ -103,7 +103,7 @@ limitation.
 
 ### Why Can UDS Be Competitive For Small Messages?
 
-Fixed SHM coordination can outweigh a small socket payload. After Phase 8.1, 64-byte medians were
+Fixed SHM coordination can outweigh a small socket payload. In the optimized reference, 64-byte medians were
 80.7 us UDS, 170.0 us SHM Copy, and 157.2 us SHM Loan; message rates were 148.0k, 130.8k, and
 151.4k/s respectively. There is no universal winner.
 
@@ -123,7 +123,7 @@ throughput sampling must not be mixed, and a small 4 MiB sample count makes tail
 The runner snapshots `/proc/<pid>/stat` CPU ticks at acknowledged measurement boundaries and
 samples `/proc/<pid>/status` RSS every 100 ms. Publisher and subscribers remain separate.
 
-### What Did Phase 8.1 Find?
+### What Did Profiling Find?
 
 Small-message SHM was making a synchronous registry resolve for every publication. Benchmark and
 context-switch evidence plus source inspection justified a bounded 1 ms reuse window. Removing

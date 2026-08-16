@@ -23,7 +23,7 @@ protocol, tool, example, or core test source includes or links ROS2.
 
 ## Supported Message Types
 
-The first adapter version explicitly supports:
+The adapter explicitly supports:
 
 | ROS type | Intended use |
 | --- | --- |
@@ -32,7 +32,7 @@ The first adapter version explicitly supports:
 | `sensor_msgs/msg/Image` | Large sensor payloads |
 
 Unknown values fail node construction with a diagnostic and nonzero process exit. There is no
-dynamic introspection, plugin loader, IDL compiler, or PointCloud2 support in Phase 7.
+dynamic introspection, plugin loader, IDL compiler, or PointCloud2 support.
 
 ## Serialization And Type Compatibility
 
@@ -89,7 +89,7 @@ volatile ROS publication before graph discovery is symmetric.
 
 ## Copy And Loan Boundaries
 
-The native middleware `LoanedSample -> SampleView` SHM path verified in Phase 5 still avoids
+The native middleware `LoanedSample -> SampleView` SHM path avoids
 middleware payload copies. The ROS2 adapter path is different:
 
 - ROS2 to middleware allocates/uses a ROS serialized buffer, then copies that buffer once into the
@@ -98,7 +98,7 @@ middleware payload copies. The ROS2 adapter path is different:
   `rclcpp::SerializedMessage` before ROS deserialization.
 - UDS keeps its kernel/socket and owning-message copies.
 
-The ROS2 bridge is not end-to-end zero-copy. Phase 7 makes no performance claim.
+The ROS2 bridge is not end-to-end zero-copy and makes no performance claim.
 
 ## Parameters
 
@@ -129,30 +129,30 @@ automatically equivalent and the adapter does not translate one into the other.
 Build and install the core first:
 
 ```bash
-cmake -S . -B .work/phase_9/build_release -DCMAKE_BUILD_TYPE=Release
-cmake --build .work/phase_9/build_release -j
-ctest --test-dir .work/phase_9/build_release --output-on-failure
-cmake --install .work/phase_9/build_release --prefix "$PWD/.work/phase_9/install"
+cmake -S . -B .work/public/build_release -DCMAKE_BUILD_TYPE=Release
+cmake --build .work/public/build_release -j
+ctest --test-dir .work/public/build_release --output-on-failure
+cmake --install .work/public/build_release --prefix "$PWD/.work/public/install"
 ```
 
 Then build the independent adapter package:
 
 ```bash
 source /opt/ros/$ROS_DISTRO/setup.bash
-colcon --log-base .work/phase_9/ros2/log build \
+colcon --log-base .work/public/ros2/log build \
   --base-paths ros2_adapter \
-  --build-base .work/phase_9/ros2/build \
-  --install-base .work/phase_9/ros2/install \
+  --build-base .work/public/ros2/build \
+  --install-base .work/public/ros2/install \
   --cmake-args \
     -DCMAKE_BUILD_TYPE=Release \
-    "-DCMAKE_PREFIX_PATH=$PWD/.work/phase_9/install;/opt/ros/$ROS_DISTRO"
-colcon --log-base .work/phase_9/ros2/log test \
+    "-DCMAKE_PREFIX_PATH=$PWD/.work/public/install;/opt/ros/$ROS_DISTRO"
+colcon --log-base .work/public/ros2/log test \
   --base-paths ros2_adapter \
-  --build-base .work/phase_9/ros2/build \
-  --install-base .work/phase_9/ros2/install
-colcon --log-base .work/phase_9/ros2/log test-result \
-  --test-result-base .work/phase_9/ros2/build --verbose
-source .work/phase_9/ros2/install/setup.bash
+  --build-base .work/public/ros2/build \
+  --install-base .work/public/ros2/install
+colcon --log-base .work/public/ros2/log test-result \
+  --test-result-base .work/public/ros2/build --verbose
+source .work/public/ros2/install/setup.bash
 ```
 
 Tests use an isolated `ROS_DOMAIN_ID`, localhost discovery, unique node/topic/socket names, bounded
@@ -179,7 +179,7 @@ section by remapping the node name and passing the file:
 ```bash
 ros2 run mw_ros2_adapter mw_to_ros2_bridge --ros-args \
   -r __node:=mw_to_ros2_twist \
-  --params-file .work/phase_9/ros2/install/mw_ros2_adapter/share/mw_ros2_adapter/config/bridge_examples.yaml
+  --params-file .work/public/ros2/install/mw_ros2_adapter/share/mw_ros2_adapter/config/bridge_examples.yaml
 ```
 
 Do not connect an unisolated ROS topic A to middleware topic B in both directions back to the same
@@ -193,15 +193,15 @@ Start the registry, one forward bridge, and one reverse bridge on separate ROS t
 ./_install/bin/mw_registryd --socket /tmp/mw_registry.sock
 
 ros2 run mw_ros2_adapter ros2_to_mw_bridge --ros-args \
-  -p ros_topic:=/phase7/string/in -p mw_topic:=/phase7/string \
+  -p ros_topic:=/public/string/in -p mw_topic:=/public/string \
   -p message_type:=std_msgs/msg/String -p transport:=shm
 
 ros2 run mw_ros2_adapter mw_to_ros2_bridge --ros-args \
-  -p ros_topic:=/phase7/string/out -p mw_topic:=/phase7/string \
+  -p ros_topic:=/public/string/out -p mw_topic:=/public/string \
   -p message_type:=std_msgs/msg/String -p transport:=shm
 
-ros2 topic echo --once /phase7/string/out std_msgs/msg/String
-ros2 topic pub --once /phase7/string/in std_msgs/msg/String "{data: phase7-demo}"
+ros2 topic echo --once /public/string/out std_msgs/msg/String
+ros2 topic pub --once /public/string/in std_msgs/msg/String "{data: public-demo}"
 ```
 
 ## Twist Demo
@@ -209,8 +209,8 @@ ros2 topic pub --once /phase7/string/in std_msgs/msg/String "{data: phase7-demo}
 Use the same topology with `geometry_msgs/msg/Twist` and distinct topics:
 
 ```bash
-ros2 topic echo --once /phase7/twist/out geometry_msgs/msg/Twist
-ros2 topic pub --once /phase7/twist/in geometry_msgs/msg/Twist \
+ros2 topic echo --once /public/twist/out geometry_msgs/msg/Twist
+ros2 topic pub --once /public/twist/in geometry_msgs/msg/Twist \
   "{linear: {x: 1.25, y: -2.5, z: 0.0}, angular: {x: -0.125, y: 9.75, z: 3.141592653589793}}"
 ```
 
@@ -218,13 +218,13 @@ The automated integration suite validates all six floating-point fields in both 
 
 ## Image Demo
 
-Configure the bridge pair with `sensor_msgs/msg/Image`, `/phase7/image/in`,
-`/phase7/image/out`, and the same `/phase7/image` middleware topic. The deterministic integration
+Configure the bridge pair with `sensor_msgs/msg/Image`, `/public/image/in`,
+`/public/image/out`, and the same `/public/image` middleware topic. The deterministic integration
 test is the practical large-message demo:
 
 ```bash
 source /opt/ros/$ROS_DISTRO/setup.bash
-ctest --test-dir .work/phase_9/ros2/build/mw_ros2_adapter \
+ctest --test-dir .work/public/ros2/build/mw_ros2_adapter \
   -R mw_ros2_adapter_integration_test --output-on-failure
 ```
 
@@ -236,12 +236,12 @@ Jazzy serialized payload is 2,764,860 bytes, below the existing 4 MiB limit.
 
 SIGINT causes `rclcpp` shutdown, executor exit, node destruction, and middleware endpoint/context
 destruction. The core heartbeat thread is RAII-joined. Normal cleanup removes registry records,
-data sockets, queues, and pools. If a bridge is killed with `SIGKILL`, Phase 6 control-connection
-death cleanup removes its exact registered resources; the adapter does not auto-restart.
+data sockets, queues, and pools. If a bridge is killed with `SIGKILL`, control-connection death
+cleanup removes its exact registered resources; the adapter does not auto-restart.
 
 An unavailable registry, unsupported type, invalid parameter, type mismatch, serialization error,
 deserialization error, or middleware publish error produces a diagnostic. Existing contexts do not
-reconnect after a registry daemon restart, matching the Phase 6 failure boundary.
+reconnect after a registry daemon restart, matching the documented failure boundary.
 
 ## Known Limitations
 

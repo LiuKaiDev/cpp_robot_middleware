@@ -2,11 +2,10 @@
 
 ## Repository Rules
 
-`PROJECT_PLAN.md` is the scope source of truth and `AGENTS.md` defines the engineering workflow.
 Keep the core independent of ROS2, preserve the control/data-plane split, and require benchmark or
 profiling evidence before transport optimization. Do not claim repository-wide zero-copy.
 
-Use `.work/phase_X/` for build, install, log, sanitizer, demo, and raw result output. Permanent
+Use `.work/` for build, install, log, sanitizer, demo, and raw result output. Permanent
 source, tests, documentation, reports, and compact committed reference evidence stay in their
 existing repository directories.
 
@@ -53,4 +52,4 @@ The ROS2 adapter is a separate ament package and must be built against the insta
 Keep commits purpose-oriented, preserve unrelated worktree changes, and run checks in proportion
 to the ownership and process boundaries touched. Do not commit `.work/`, raw benchmark matrices,
 coverage output, profiler output, build trees, or generated ROS logs. Do not create tags or push
-unless the project owner explicitly requests it.
+unless the repository maintainer explicitly requests it.

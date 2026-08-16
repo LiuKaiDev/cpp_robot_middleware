@@ -2,11 +2,11 @@
 
 ## Prerequisites
 
-Run from the repository root on Linux. Build the core Release binaries under the Phase 9 work tree:
+Run from the repository root on Linux. Build the core Release binaries under `.work/public/`:
 
 ```bash
-cmake -S . -B .work/phase_9/build_release -DCMAKE_BUILD_TYPE=Release
-cmake --build .work/phase_9/build_release -j
+cmake -S . -B .work/public/build_release -DCMAKE_BUILD_TYPE=Release
+cmake --build .work/public/build_release -j
 ```
 
 Scripts default to that build directory. Override it with `MW_BUILD_DIR=/absolute/path` when
@@ -31,7 +31,7 @@ scripts/demo/demo_large_message.sh
 
 Transfers three 4 MiB messages through the ordinary SHM Copy API and validates exact payload bytes
 and sequence. This is a correctness demo, not a new benchmark; measured performance comes from the
-committed Phase 8.1 reference.
+committed optimized reference.
 
 ## Demo 3: Multi-Subscriber Sharing
 
@@ -61,7 +61,7 @@ scripts/demo/demo_crash_recovery.sh
 
 The script starts one subscriber, prints its live registry record, sends `SIGKILL` only to that
 exact PID, waits for removal, starts a replacement on the same endpoint path, and verifies a new
-publication. The deeper outstanding-view and blocked-producer cases remain covered by the Phase 6
+publication. The deeper outstanding-view and blocked-producer cases remain covered by the
 integration tests.
 
 ## Demo 6: ROS2 Adapter
@@ -69,14 +69,14 @@ integration tests.
 First install the core and build the adapter:
 
 ```bash
-cmake --install .work/phase_9/build_release --prefix .work/phase_9/install
+cmake --install .work/public/build_release --prefix .work/public/install
 source /opt/ros/jazzy/setup.bash
-colcon --log-base .work/phase_9/ros2/log build \
+colcon --log-base .work/public/ros2/log build \
   --base-paths ros2_adapter \
-  --build-base .work/phase_9/ros2/build \
-  --install-base .work/phase_9/ros2/install \
+  --build-base .work/public/ros2/build \
+  --install-base .work/public/ros2/install \
   --cmake-args -DCMAKE_BUILD_TYPE=Release \
-  "-DCMAKE_PREFIX_PATH=$PWD/.work/phase_9/install;/opt/ros/jazzy"
+  "-DCMAKE_PREFIX_PATH=$PWD/.work/public/install;/opt/ros/jazzy"
 ```
 
 Then run:

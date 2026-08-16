@@ -3,7 +3,7 @@
 source "$(dirname "$0")/common.sh"
 
 new_demo_case ros2_adapter
-MW_ROS_INSTALL="${MW_ROS_INSTALL:-${MW_REPO_ROOT}/.work/phase_9/ros2/install}"
+MW_ROS_INSTALL="${MW_ROS_INSTALL:-${MW_REPO_ROOT}/.work/public/ros2/install}"
 MW_TO_ROS_EXECUTABLE="${MW_ROS_INSTALL}/mw_ros2_adapter/lib/mw_ros2_adapter/mw_to_ros2_bridge"
 ROS_TO_MW_EXECUTABLE="${MW_ROS_INSTALL}/mw_ros2_adapter/lib/mw_ros2_adapter/ros2_to_mw_bridge"
 registry="/tmp/mw_demo_ros_registry_${DEMO_TOKEN}.sock"
@@ -11,11 +11,11 @@ mw_socket="/tmp/mw_demo_ros_data_${DEMO_TOKEN}.sock"
 mw_topic="/demo/ros/mw/${DEMO_TOKEN}"
 ros_input="/demo/ros/input/${DEMO_TOKEN}"
 ros_output="/demo/ros/output/${DEMO_TOKEN}"
-payload="phase9-demo-${DEMO_TOKEN}"
+payload="public-demo-${DEMO_TOKEN}"
 register_cleanup_path "${mw_socket}"
 
 if [[ ! -f /opt/ros/jazzy/setup.bash || ! -f "${MW_ROS_INSTALL}/setup.bash" ]]; then
-    echo "ROS2 Jazzy or the Phase 9 adapter install is unavailable" >&2
+    echo "ROS2 Jazzy or the public adapter install is unavailable" >&2
     exit 2
 fi
 require_executable "${MW_TO_ROS_EXECUTABLE}"

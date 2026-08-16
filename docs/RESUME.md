@@ -61,7 +61,7 @@ that shared memory does not automatically win.
 - Why robust queue repair and publisher outstanding tracking are both needed after a crash.
 - Where copies remain in UDS, SHM Copy, owning receive, and the ROS2 adapter.
 - Why the project chose a correct mutex-based bounded design before evidence-driven optimization.
-- Why Phase 8.1 reports `/proc` evidence honestly instead of claiming unavailable perf/strace data.
+- Why the profiling run reports `/proc` evidence honestly instead of claiming unavailable perf/strace data.
 
 Do not describe this project as production middleware, a DDS replacement, a custom RMW,
 distributed, lock-free, fully zero-copy, or hard real-time.

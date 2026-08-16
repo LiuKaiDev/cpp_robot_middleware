@@ -5,7 +5,7 @@
 The v1 data plane has two independently selectable Linux-local payload transports, with copy/loan
 choices and peer-crash recovery:
 
-- `TransportType::UnixDomainSocket` is the copied Phase 1 baseline.
+- `TransportType::UnixDomainSocket` is the copied UDS baseline.
 - `TransportType::SharedMemory` is the registry-discovered preallocated POSIX SHM pool transport.
 
 The registry control plane remains UDS in both modes. SHM mode also retains direct publisher to
@@ -14,7 +14,7 @@ through UDS in SHM mode.
 
 ## UDS Baseline
 
-The UDS path is unchanged from Phase 1. A publisher sends the explicitly encoded 24-byte `MW01`
+The UDS path sends the explicitly encoded 24-byte `MW01`
 header followed by exactly `payload_size` bytes. The subscriber incrementally receives the stream
 and returns an owning `ReceivedMessage`. Direct mode supports this baseline; registry mode can also
 select it with `TransportType::UnixDomainSocket`. This path selects one discovered subscriber.
@@ -128,11 +128,11 @@ pool before access.
 Ordinary `publish()` has one application-buffer-to-SHM copy, and owning `ReceivedMessage` has one
 mapped-SHM-to-vector copy. The verified loaned path avoids middleware payload copies between the
 application filling `LoanedSample` and reading the same logical chunk through `SampleView`. This is
-not a claim that UDS, all SHM APIs, or the middleware as a whole is zero-copy. No performance
-conclusion is made in Phase 5.
+not a claim that UDS, all SHM APIs, or the middleware as a whole is zero-copy. Performance
+measurements and their limits are documented in [BENCHMARK.md](BENCHMARK.md).
 
 `eventfd` and `SCM_RIGHTS` remain future candidates rather than implemented optimizations. Recovery
 is scoped to registered resources and process crashes observed through control EOF/HUP or heartbeat
 timeout; it does not claim recovery from arbitrary shared-memory corruption or host failure. See
 [MESSAGE_LIFECYCLE.md](MESSAGE_LIFECYCLE.md) for ownership and [BENCHMARK.md](BENCHMARK.md) for the
-Phase 8.1 measurements and their limits.
+profiling measurements and their limits.

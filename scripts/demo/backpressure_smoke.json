@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "name": "phase9_backpressure_demo",
+  "name": "public_backpressure_demo",
   "transports": ["shm_copy"],
   "message_sizes": [65536],
   "subscriber_counts": [1],

@@ -65,7 +65,7 @@ calls. Consequently, `take()` can return without discarding an incomplete frame,
 - `UnixListener` owns the pathname after a successful bind. Its destructor first closes the
   listening descriptor and then unlinks the pathname.
 - Startup does not blindly unlink an existing pathname. An active or stale pathname causes bind to
-  fail. In registry mode, Phase 6 unlinks the exact registered subscriber socket after node death;
+  fail. In registry mode, the daemon unlinks the exact registered subscriber socket after node death;
   direct mode has no registry authority and retains the original manual stale-path boundary.
 
 ## Disconnect And Reconnect
@@ -81,7 +81,7 @@ untrusted payload allocation occurs before header validation.
 
 ## Thread And Process Model
 
-Direct mode has no middleware worker threads. A registry-enabled context has the Phase 6
+Direct mode has no middleware worker threads. A registry-enabled context has the
 control-only heartbeat thread. `publish()` sends on the caller's thread.
 `take()`/`waitAndTake()` poll, accept, and receive on the caller's thread. Publisher and subscriber
 are intended to live in separate processes; tests also exercise the same transport in one process.
@@ -92,7 +92,7 @@ Start the subscriber first:
 
 ```bash
 ./build/bin/mw_ping_subscriber \
-  --socket /tmp/mw_phase1.sock \
+  --socket /tmp/mw_uds_demo.sock \
   --count 100000 \
   --size 64
 ```
@@ -101,7 +101,7 @@ Then run the publisher:
 
 ```bash
 ./build/bin/mw_ping_publisher \
-  --socket /tmp/mw_phase1.sock \
+  --socket /tmp/mw_uds_demo.sock \
   --count 100000 \
   --size 64
 ```
@@ -115,7 +115,7 @@ by the synchronous publisher.
 - No registry, discovery, topic/type negotiation, or multi-publisher ordering.
 - Payloads are copied through the kernel socket path.
 - No subscriber queue, backpressure policy, persistence, retransmission, or worker thread.
-- The direct Phase 1 path has no shared memory, memory pool, loaned sample, or automatic crash
+- The direct path has no shared memory, memory pool, loaned sample, or automatic crash
   cleanup. Registry-mode lifecycle recovery is documented separately.
 - A pathname left by an unclean direct-mode subscriber exit must be removed by the operator.
 - The final project provides a separate ROS2 adapter and benchmark, but neither changes this direct

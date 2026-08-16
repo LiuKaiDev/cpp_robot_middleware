@@ -4,8 +4,8 @@ set -euo pipefail
 
 DEMO_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MW_REPO_ROOT="$(cd "${DEMO_SCRIPT_DIR}/../.." && pwd)"
-MW_BUILD_DIR="${MW_BUILD_DIR:-${MW_REPO_ROOT}/.work/phase_9/build_release}"
-MW_DEMO_ROOT="${MW_DEMO_ROOT:-${MW_REPO_ROOT}/.work/phase_9/demo}"
+MW_BUILD_DIR="${MW_BUILD_DIR:-${MW_REPO_ROOT}/.work/public/build_release}"
+MW_DEMO_ROOT="${MW_DEMO_ROOT:-${MW_REPO_ROOT}/.work/public/demo}"
 DEMO_TOKEN="t${BASHPID}_${RANDOM}"
 DEMO_PIDS=()
 DEMO_PATHS=()

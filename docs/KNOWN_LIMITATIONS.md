@@ -58,7 +58,7 @@ These are current implementation boundaries, not planned features.
   scheduling. It is evidence for that configuration, not a universal transport ranking.
 - Throughput-profile latency is systematically sampled and is not a complete tail distribution.
 - Direct ROS2 uses normal `rmw_fastrtps_cpp`; its results include ROS serialization/DDS behavior.
-- `perf` and `strace` were unavailable during Phase 8.1. Profiling used benchmark deltas, `/proc`
+- `perf` and `strace` were unavailable during profiling. Analysis used benchmark deltas, `/proc`
   counters, 100 ms wait-channel samples, and source inspection, so no symbol-level CPU or dynamic
   syscall ranking is claimed.
 - RSS includes process/library mappings and finite configured SHM mappings; it is not only live

@@ -34,7 +34,7 @@ def print_backpressure(cases: list[dict[str, Any]]) -> None:
 
 
 def print_reference(cases: list[dict[str, Any]]) -> None:
-    print("Optimized Phase 8.1 reference, 1 publisher -> 1 subscriber medians")
+    print("Optimized benchmark reference, 1 publisher -> 1 subscriber medians")
     print("transport  size       latency_p50_us  throughput_MiB/s  messages/s")
     for size in (64, 65536, 1048576, 4194304):
         for transport in ("uds", "shm_copy", "shm_loan", "ros2"):

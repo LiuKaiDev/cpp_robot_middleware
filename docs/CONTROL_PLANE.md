@@ -106,9 +106,9 @@ The registry treats a pair as compatible only when topic name, `type_name`, `typ
 IDL or schema converter. A schema mismatch returns `TypeMismatch`; a UDS/SHM mismatch returns
 `TransportMismatch`; a second active publisher returns `DuplicatePublisher`.
 
-The state model retains N subscribers. Phase 5 SHM resolution returns all of them with independent
-queue capacities and policies, and establishes one direct metadata UDS per subscriber. The copied
-Phase 1 UDS baseline continues selecting the first compatible endpoint.
+The state model retains N subscribers. SHM resolution returns all of them with independent queue
+capacities and policies, and establishes one direct metadata UDS per subscriber. The copied direct
+UDS mode continues selecting the first compatible endpoint.
 
 ## Discovery Flow
 

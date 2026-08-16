@@ -8,8 +8,8 @@ blocking across four implementations. A result is useful whether custom middlewa
 slower than ROS2; correctness and a reproducible comparison are the acceptance criteria.
 
 Startup/discovery latency is outside the matrix. The benchmark does not tune the scheduler, pin
-CPUs, or add lock-free structures in response to a score. Phase 8.1 profiling and its available
-tools are documented separately below.
+CPUs, or add lock-free structures in response to a score. The profiling run and its available tools
+are documented separately below.
 
 ## Transport Definitions
 
@@ -26,18 +26,18 @@ copy. SHM loan does not allocate a full-size application vector and copy it into
 
 The ROS2 baseline is an independent ament package under `benchmark/ros2`. It uses ROS2 Jazzy,
 `rmw_fastrtps_cpp`, Reliable reliability, KeepLast history, and the configured depth. It does not
-link the custom core, start `mw_registryd`, or use either Phase 7 bridge. A bridge would measure
+link the custom core, start `mw_registryd`, or use either adapter bridge. A bridge would measure
 adapter serialization plus two transports rather than direct ROS2 communication.
 
 ## Fairness Controls
 
 Every compared main case uses the same host session, source revision, exact application payload
-size, topology, phase durations, profile, and logical payload. The runner interleaves transports
+size, timing segments, profile, and logical payload. The runner interleaves transports
 with a deterministic shuffle seed recorded in `config.json`; it does not run every transport in a
 single fixed block. ROS2 uses an isolated recorded `ROS_DOMAIN_ID` and localhost discovery.
 
 All performance binaries use Release builds with sanitizers and coverage disabled. Debug, ASan,
-UBSan, and Phase 7 adapter tests are correctness regressions only and their numbers are never used
+UBSan, and adapter tests are correctness regressions only and their numbers are never used
 as performance results. Normal/default Fast DDS behavior is retained; no special Fast DDS SHM
 profile is enabled.
 
@@ -140,7 +140,7 @@ acknowledgements align CPU/RSS snapshots to the publisher's measurement window.
 Every readiness, measurement, child exit, and shutdown wait is bounded. Cleanup signals only the
 runner's exact child PIDs, checks only case-created socket paths, and compares the project SHM
 namespace before/after the case. It never wildcard-deletes SHM or broadly kills ROS processes.
-Phase 6 owner/registry cleanup remains responsible for normal resources.
+Owner/registry cleanup remains responsible for normal resources.
 
 A run is invalid if a subscriber is not ready, a process crashes or exits nonzero, measurement is
 short, an artifact is missing, payload/sequence corruption occurs, latency storage overflows, or a
@@ -185,12 +185,12 @@ identity with median/min/max values and links to all three run paths.
 Build the custom Release benchmark:
 
 ```bash
-cmake -S . -B .work/phase_8/build_release \
+cmake -S . -B .work/public/build_release \
   -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTING=OFF \
   -DENABLE_ASAN=OFF \
   -DENABLE_UBSAN=OFF
-cmake --build .work/phase_8/build_release -j
+cmake --build .work/public/build_release -j
 ```
 
 Build the direct ROS2 benchmark:
@@ -198,10 +198,10 @@ Build the direct ROS2 benchmark:
 ```bash
 source /opt/ros/jazzy/setup.bash
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-colcon --log-base .work/phase_8/ros2/log build \
+colcon --log-base .work/public/ros2/log build \
   --base-paths benchmark/ros2 \
-  --build-base .work/phase_8/ros2/build \
-  --install-base .work/phase_8/ros2/install \
+  --build-base .work/public/ros2/build \
+  --install-base .work/public/ros2/install \
   --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
@@ -243,9 +243,9 @@ python3 benchmark/python/plot_results.py benchmark/results/<run_id>
 Use `--dry-run` to inspect deterministic case expansion and `--no-plots` when only validating
 orchestration. Filters also support one transport, message size, topology, or profile.
 
-## Phase 8.1 Profiling
+## Profiling Evidence
 
-Phase 8.1 reuses the same Release endpoints, payloads, queue settings, timings, and runner. Its
+The profiling run reuses the same Release endpoints, payloads, queue settings, timings, and runner. Its
 representative custom matrix covers 64 B, 4 KiB, 64 KiB, 1 MiB, and 4 MiB 1-to-1 plus 64 KiB and
 4 MiB 1-to-4 where applicable. Direct ROS2 context covers 64 KiB and 4 MiB 1-to-1. Focused SHM
 before/after validation uses three repetitions for both latency and throughput.
@@ -257,17 +257,17 @@ for the exact benchmark child processes. Reproduce it with:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-source .work/phase_8_1/ros2_profile/install/setup.bash
+source .work/public/profile/ros2/install/setup.bash
 python3 benchmark/profiling/run_phase8_1_profile.py \
-  --output-root .work/phase_8_1/profile \
-  --build-dir .work/phase_8_1/build_profile \
-  --ros-install .work/phase_8_1/ros2_profile/install
+  --output-root .work/public/profile \
+  --build-dir .work/public/profile/build \
+  --ros-install .work/public/profile/ros2/install
 ```
 
-Compact profiling evidence is under `benchmark/profiling/`. The original Phase 8 aggregate stays
+Compact profiling evidence is under `benchmark/profiling/`. The original aggregate stays
 under `benchmark/results/phase8_reference/`; the optimized complete-matrix aggregate is separate
-under `benchmark/results/phase8_1_reference/`. See
-`docs/reports/PHASE_8_1_REPORT.md` for attribution, copy-path analysis, limitations, and acceptance.
+under `benchmark/results/phase8_1_reference/`. The profiling files record attribution, copy-path
+analysis, limitations, and acceptance evidence.
 
 ## Final Reference Results
 
@@ -311,6 +311,6 @@ Results describe one WSL/native host session and normal OS scheduling, not hard 
 No CPU isolation, affinity, priority, cache conditioning, or background-load control is applied.
 ROS2 `UInt8MultiArray` serialization and DDS protocol overhead are included outside the equal
 application byte count. ROS QoS and custom backpressure are similar comparison settings, not
-equivalent guarantees. Sampled throughput latency is not a complete tail distribution. The Phase 8
-aggregate alone does not attribute causes to syscalls, copies, locks, scheduling, or cache behavior;
-the separate Phase 8.1 evidence records the available attribution and its limits.
+equivalent guarantees. Sampled throughput latency is not a complete tail distribution. The aggregate
+alone does not attribute causes to syscalls, copies, locks, scheduling, or cache behavior; the
+separate profiling evidence records the available attribution and its limits.

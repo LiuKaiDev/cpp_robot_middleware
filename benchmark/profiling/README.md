@@ -1,6 +1,6 @@
-# Phase 8.1 Profiling Evidence
+# Profiling Evidence
 
-This directory contains compact evidence for Phase 8.1. It explains the Phase 8 results without
+This directory contains compact evidence for the profiling and optimization work. It explains the original results without
 committing raw traces or per-run benchmark trees.
 
 ## Method
@@ -34,20 +34,20 @@ three repetitions for both SHM paths at 64 B, 64 KiB, 1 MiB, and 4 MiB 1-to-1 pl
 - `run_phase8_1_profile.py`: the bounded observer used to collect the representative raw profile.
 
 The complete optimized 441-run aggregate is in `benchmark/results/phase8_1_reference/`. Historical
-Phase 8 results remain in `benchmark/results/phase8_reference/`.
+pre-optimization results remain in `benchmark/results/phase8_reference/`.
 
 ## Reproduce
 
-Build custom and direct ROS2 Release endpoints under the phase work tree, then source the ROS2
+Build custom and direct ROS2 Release endpoints under a dedicated work tree, then source the ROS2
 environment and run:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-source .work/phase_8_1/ros2_profile/install/setup.bash
+source .work/public/profile/ros2/install/setup.bash
 python3 benchmark/profiling/run_phase8_1_profile.py \
-  --output-root .work/phase_8_1/profile \
-  --build-dir .work/phase_8_1/build_profile \
-  --ros-install .work/phase_8_1/ros2_profile/install
+  --output-root .work/public/profile \
+  --build-dir .work/public/profile/build \
+  --ros-install .work/public/profile/ros2/install
 ```
 
 The output root must not already exist. The observer uses the timings and queue settings from

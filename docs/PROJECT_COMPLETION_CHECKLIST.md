@@ -1,7 +1,7 @@
 # Project Completion Checklist
 
 The mandatory v1 scope is complete. Each PASS below is tied to current source, tests, or committed
-measurement evidence rather than only a historical phase report.
+measurement evidence rather than only historical development notes.
 
 | Mandatory requirement | Status | Evidence |
 | --- | --- | --- |

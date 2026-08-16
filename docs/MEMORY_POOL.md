@@ -154,14 +154,14 @@ no business payload. The `ChunkHandle` itself resides in the shared ring queue.
 ## Copy And Allocation Semantics
 
 Ordinary `publish()` retains one application-buffer-to-SHM copy, and owning `ReceivedMessage`
-copies from a temporary view. The Phase 5 loan-to-view path avoids middleware payload copies
+copies from a temporary view. The native loan-to-view path avoids middleware payload copies
 between application fill and subscriber read. All paths continue to avoid per-message
 `shm_open`/`ftruncate`/`mmap`/`munmap`/`shm_unlink` operations.
 
 The chunk allocator performs no per-message payload allocation. Publisher connection bookkeeping,
 wake/release polling containers, control-protocol strings/vectors, and each owning subscriber
 message can still allocate ordinary process heap memory. The measured behavior and profiling
-limits are documented in [BENCHMARK.md](BENCHMARK.md) and the Phase 8.1 report.
+limits are documented in [BENCHMARK.md](BENCHMARK.md) and `benchmark/profiling/`.
 
 ## Known Limitations
 
