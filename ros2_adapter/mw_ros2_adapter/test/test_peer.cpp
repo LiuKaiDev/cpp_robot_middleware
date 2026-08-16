@@ -40,7 +40,7 @@ struct Options {
     std::string message_type{"std_msgs/msg/String"};
     std::string socket_path;
     std::string ready_file;
-    std::string text{"phase7-string-payload"};
+    std::string text{"adapter-string-payload"};
     std::string transport{"shm"};
     std::chrono::milliseconds timeout{15000};
     bool corrupt{false};
@@ -122,7 +122,7 @@ std::string processName(const char* prefix) {
 }
 
 template <typename MessageT> int runRosPublisher(const Options& options) {
-    auto node = std::make_shared<rclcpp::Node>(processName("phase7_ros_pub"));
+    auto node = std::make_shared<rclcpp::Node>(processName("adapter_ros_publisher"));
     auto publisher =
         node->create_publisher<MessageT>(options.ros_topic, rclcpp::QoS(10).reliable());
     const auto deadline = std::chrono::steady_clock::now() + options.timeout;
@@ -144,7 +144,7 @@ template <typename MessageT> int runRosPublisher(const Options& options) {
 }
 
 template <typename MessageT> int runRosSubscriber(const Options& options) {
-    auto node = std::make_shared<rclcpp::Node>(processName("phase7_ros_sub"));
+    auto node = std::make_shared<rclcpp::Node>(processName("adapter_ros_subscriber"));
     bool received = false;
     bool valid = false;
     const MessageT expected = expectedMessage<MessageT>(options);
@@ -215,7 +215,8 @@ mw::SubscriberConfig subscriberConfig(const Options& options) {
 
 template <typename MessageT> int runMiddlewarePublisher(const Options& options) {
     try {
-        mw::Context context{processName("phase7_mw_pub"), mw::RegistryConfig{options.registry}};
+        mw::Context context{processName("adapter_mw_publisher"),
+                            mw::RegistryConfig{options.registry}};
         auto publisher = context.createPublisher(options.mw_topic, publisherConfig(options));
         const std::vector<std::uint8_t> bytes = serializedMessage<MessageT>(options);
         const mw::PublishResult result = publisher.publish(bytes.data(), bytes.size());
@@ -235,7 +236,7 @@ template <typename MessageT> int runMiddlewarePublisher(const Options& options) 
 }
 
 template <typename MessageT> int runMiddlewareSubscriber(const Options& options) {
-    mw::Context context{processName("phase7_mw_sub"), mw::RegistryConfig{options.registry}};
+    mw::Context context{processName("adapter_mw_subscriber"), mw::RegistryConfig{options.registry}};
     auto subscriber = context.createSubscriber(options.mw_topic, subscriberConfig(options));
     std::vector<std::uint8_t> bytes;
     if (transport(options) == mw::TransportType::SharedMemory) {

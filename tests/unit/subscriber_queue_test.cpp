@@ -23,7 +23,7 @@ mw::detail::QueueDescriptor descriptor(const std::string& label, std::uint32_t c
     const std::uint64_t id =
         (static_cast<std::uint64_t>(static_cast<std::uint32_t>(::getpid())) << 32U) |
         queue_counter.fetch_add(1U);
-    return {"/mw_q5_unit_" + std::to_string(::getpid()) + "_" + label + "_" + std::to_string(id),
+    return {"/mw_queue_unit_" + std::to_string(::getpid()) + "_" + label + "_" + std::to_string(id),
             id,
             mw::detail::SharedSubscriberQueue::requiredSegmentSize(capacity),
             capacity,
@@ -144,7 +144,7 @@ TEST(SubscriberQueueTest, RejectsZeroAndExcessiveDepth) {
 }
 
 TEST(SubscriberQueueTest, WakeAndReleaseFramesContainMetadataOnly) {
-    const mw::detail::PoolDescriptor pool{"/mw_p5_protocol", 91U, 8U * 1024U, 12U,
+    const mw::detail::PoolDescriptor pool{"/mw_pool_queue_protocol", 91U, 8U * 1024U, 12U,
                                           mw::detail::kPoolLayoutVersion};
     const auto wake = mw::detail::encodeQueueWake({pool, 77U});
     ASSERT_TRUE(wake.has_value());

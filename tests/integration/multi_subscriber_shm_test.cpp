@@ -173,7 +173,7 @@ bool waitForSubscriberCount(const std::string& path, std::size_t expected) {
     while (std::chrono::steady_clock::now() < deadline) {
         try {
             mw::detail::RegistryClient client{mw::RegistryConfig{path}};
-            if (client.queryTopic("/phase4/multi").subscriber_count == expected) {
+            if (client.queryTopic("/test/multi_subscriber").subscriber_count == expected) {
                 return true;
             }
         } catch (...) {
@@ -207,8 +207,7 @@ std::set<std::string> projectPoolObjects() {
     for (std::filesystem::directory_iterator iterator{"/dev/shm", error}, end;
          !error && iterator != end; iterator.increment(error)) {
         const std::string name = iterator->path().filename().string();
-        if (name.rfind("mw_p4_", 0U) == 0U || name.rfind("mw_p5_", 0U) == 0U ||
-            name.rfind("mw_q5_", 0U) == 0U) {
+        if (name.rfind("mw_pool_", 0U) == 0U || name.rfind("mw_queue_", 0U) == 0U) {
             objects.insert(name);
         }
     }
@@ -244,7 +243,7 @@ LogicalChunk parseLogicalChunk(const std::string& output) {
 TEST(MultiSubscriberShmIntegrationTest, FourProcessesShareOneLogicalChunkAndReleaseIt) {
     const auto initial_objects = projectPoolObjects();
     const std::string suffix = std::to_string(::getpid());
-    const std::string registry_path = "/tmp/mw_p4_multi_registry_" + suffix + ".sock";
+    const std::string registry_path = "/tmp/mw_test_multi_registry_" + suffix + ".sock";
     ChildProcess registry = spawn({MW_REGISTRYD_PATH, "--socket", registry_path}, false);
     ASSERT_TRUE(waitForRegistry(registry_path));
 
@@ -253,18 +252,18 @@ TEST(MultiSubscriberShmIntegrationTest, FourProcessesShareOneLogicalChunkAndRele
     for (std::size_t index = 0; index < 4U; ++index) {
         const std::string identity = std::to_string(index + 1U);
         subscribers.push_back(spawn({MW_PING_SUBSCRIBER_PATH, "--registry", registry_path,
-                                     "--node-name", "phase4_subscriber_" + identity, "--socket",
-                                     "/tmp/mw_p4_multi_data_" + suffix + "_" + identity + ".sock",
-                                     "--topic", "/phase4/multi", "--transport", "shm", "--count",
-                                     "2", "--size", "1024", "--timeout-ms", "10000"},
+                                     "--node-name", "multi_subscriber_" + identity, "--socket",
+                                     "/tmp/mw_test_multi_data_" + suffix + "_" + identity + ".sock",
+                                     "--topic", "/test/multi_subscriber", "--transport", "shm",
+                                     "--count", "2", "--size", "1024", "--timeout-ms", "10000"},
                                     true));
     }
     ASSERT_TRUE(waitForSubscriberCount(registry_path, 4U));
 
     ChildProcess publisher =
         spawn({MW_PING_PUBLISHER_PATH, "--registry", registry_path, "--node-name",
-               "phase4_publisher", "--socket", "/tmp/mw_p4_unused.sock", "--topic", "/phase4/multi",
-               "--transport", "shm", "--count", "2", "--size", "1024"},
+               "multi_publisher", "--socket", "/tmp/mw_test_multi_unused.sock", "--topic",
+               "/test/multi_subscriber", "--transport", "shm", "--count", "2", "--size", "1024"},
               true);
     EXPECT_EQ(publisher.wait(15s), 0) << publisher.output();
 
@@ -288,22 +287,22 @@ TEST(MultiSubscriberShmIntegrationTest, FourProcessesShareOneLogicalChunkAndRele
 TEST(MultiSubscriberShmIntegrationTest, PublisherFirstAdvertisesPoolBeforeWaitingForSubscriber) {
     const auto initial_objects = projectPoolObjects();
     const std::string suffix = std::to_string(::getpid());
-    const std::string registry_path = "/tmp/mw_p4_first_registry_" + suffix + ".sock";
-    const std::string data_path = "/tmp/mw_p4_first_data_" + suffix + ".sock";
-    const std::string topic = "/phase4/publisher_first";
+    const std::string registry_path = "/tmp/mw_test_publisher_first_registry_" + suffix + ".sock";
+    const std::string data_path = "/tmp/mw_test_publisher_first_data_" + suffix + ".sock";
+    const std::string topic = "/test/publisher_first";
     ChildProcess registry = spawn({MW_REGISTRYD_PATH, "--socket", registry_path}, false);
     ASSERT_TRUE(waitForRegistry(registry_path));
 
     ChildProcess publisher =
         spawn({MW_PING_PUBLISHER_PATH, "--registry", registry_path, "--node-name",
-               "phase4_first_publisher", "--socket", "/tmp/mw_p4_unused.sock", "--topic", topic,
-               "--transport", "shm", "--count", "1", "--size", "64"},
+               "publisher_first_publisher", "--socket", "/tmp/mw_test_publisher_first_unused.sock",
+               "--topic", topic, "--transport", "shm", "--count", "1", "--size", "64"},
               true);
     ASSERT_TRUE(waitForPublisherPool(registry_path, topic));
 
     ChildProcess subscriber =
         spawn({MW_PING_SUBSCRIBER_PATH, "--registry", registry_path, "--node-name",
-               "phase4_first_subscriber", "--socket", data_path, "--topic", topic, "--transport",
+               "publisher_first_subscriber", "--socket", data_path, "--topic", topic, "--transport",
                "shm", "--count", "1", "--size", "64", "--timeout-ms", "10000"},
               true);
     EXPECT_EQ(publisher.wait(15s), 0) << publisher.output();
@@ -316,10 +315,10 @@ TEST(MultiSubscriberShmIntegrationTest, PublisherFirstAdvertisesPoolBeforeWaitin
 TEST(MultiSubscriberShmIntegrationTest, NormalDisconnectReleasesKnownReferenceForReuse) {
     const auto initial_objects = projectPoolObjects();
     const std::string suffix = std::to_string(::getpid());
-    const std::string registry_path = "/tmp/mw_p4_disconnect_registry_" + suffix + ".sock";
-    const std::string abandoned_path = "/tmp/mw_p4_disconnect_abandoned_" + suffix + ".sock";
-    const std::string replacement_path = "/tmp/mw_p4_disconnect_replacement_" + suffix + ".sock";
-    const std::string topic = "/phase4/disconnect";
+    const std::string registry_path = "/tmp/mw_test_disconnect_registry_" + suffix + ".sock";
+    const std::string abandoned_path = "/tmp/mw_test_disconnect_abandoned_" + suffix + ".sock";
+    const std::string replacement_path = "/tmp/mw_test_disconnect_replacement_" + suffix + ".sock";
+    const std::string topic = "/test/disconnect";
     ChildProcess registry = spawn({MW_REGISTRYD_PATH, "--socket", registry_path}, false);
     ASSERT_TRUE(waitForRegistry(registry_path));
 

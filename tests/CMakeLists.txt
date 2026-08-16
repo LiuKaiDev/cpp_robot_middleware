@@ -74,17 +74,17 @@ add_dependencies(
     mw_ping_publisher
     mw_ping_subscriber
 )
-mw_add_gtest(mw_phase5_loan_queue_test integration/phase5_loan_queue_test.cpp
+mw_add_gtest(mw_loan_queue_test integration/loan_queue_integration_test.cpp
              mw_registry_support Threads::Threads)
-mw_add_gtest(mw_phase6_crash_recovery_test integration/phase6_crash_recovery_test.cpp
+mw_add_gtest(mw_crash_recovery_test integration/crash_recovery_integration_test.cpp
              Threads::Threads)
 mw_add_gtest(mw_uds_multi_subscriber_test integration/uds_multi_subscriber_test.cpp
              mw_registry_support Threads::Threads)
 target_compile_definitions(
-    mw_phase6_crash_recovery_test
+    mw_crash_recovery_test
     PRIVATE MW_REGISTRYD_PATH="$<TARGET_FILE:mw_registryd>"
 )
-add_dependencies(mw_phase6_crash_recovery_test mw_registryd)
+add_dependencies(mw_crash_recovery_test mw_registryd)
 
 add_test(
     NAME mw_benchmark_python_test

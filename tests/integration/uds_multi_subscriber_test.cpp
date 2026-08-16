@@ -4,8 +4,8 @@
 
 #include <gtest/gtest.h>
 
-#include <atomic>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -13,8 +13,8 @@
 #include <optional>
 #include <string>
 #include <thread>
-#include <vector>
 #include <unistd.h>
+#include <vector>
 
 namespace {
 
@@ -22,7 +22,7 @@ using namespace std::chrono_literals;
 
 TEST(UdsMultiSubscriberIntegrationTest, FansOutOneFrameToFourRealEndpoints) {
     const std::string token = std::to_string(::getpid());
-    const std::string registry_path = "/tmp/mw_phase8_uds_registry_" + token + ".sock";
+    const std::string registry_path = "/tmp/mw_test_uds_fanout_registry_" + token + ".sock";
     std::atomic<bool> stop{false};
     std::thread registry_thread([&] {
         mw::registry::RegistryServer server{registry_path};
@@ -43,27 +43,28 @@ TEST(UdsMultiSubscriberIntegrationTest, FansOutOneFrameToFourRealEndpoints) {
         contexts.reserve(4U);
         subscribers.reserve(4U);
         for (std::size_t index = 0U; index < 4U; ++index) {
-            contexts.push_back(std::make_unique<mw::Context>(
-                "phase8_uds_sub_" + std::to_string(index), mw::RegistryConfig{registry_path}));
+            contexts.push_back(
+                std::make_unique<mw::Context>("uds_fanout_subscriber_" + std::to_string(index),
+                                              mw::RegistryConfig{registry_path}));
             mw::SubscriberConfig config;
-            config.socket_path = "/tmp/mw_phase8_uds_data_" + token + "_" +
-                                 std::to_string(index) + ".sock";
+            config.socket_path =
+                "/tmp/mw_test_uds_fanout_data_" + token + "_" + std::to_string(index) + ".sock";
             config.max_message_size = 64U;
             config.type_name = "mw.benchmark.Bytes";
             config.type_hash = "mw.benchmark.Bytes.v1";
             config.transport = mw::TransportType::UnixDomainSocket;
             subscribers.push_back(std::make_unique<mw::Subscriber>(
-                contexts.back()->createSubscriber("/phase8_uds", config)));
+                contexts.back()->createSubscriber("/test/uds_fanout", config)));
         }
 
-        mw::Context publisher_context{"phase8_uds_pub", mw::RegistryConfig{registry_path}};
+        mw::Context publisher_context{"uds_fanout_publisher", mw::RegistryConfig{registry_path}};
         mw::PublisherConfig publisher_config;
-        publisher_config.socket_path = "/tmp/mw_phase8_uds_pub_" + token + ".sock";
+        publisher_config.socket_path = "/tmp/mw_test_uds_fanout_publisher_" + token + ".sock";
         publisher_config.max_message_size = 64U;
         publisher_config.type_name = "mw.benchmark.Bytes";
         publisher_config.type_hash = "mw.benchmark.Bytes.v1";
         publisher_config.transport = mw::TransportType::UnixDomainSocket;
-        auto publisher = publisher_context.createPublisher("/phase8_uds", publisher_config);
+        auto publisher = publisher_context.createPublisher("/test/uds_fanout", publisher_config);
 
         std::vector<std::optional<mw::ReceivedMessage>> received(4U);
         std::vector<std::thread> receivers;
@@ -84,8 +85,7 @@ TEST(UdsMultiSubscriberIntegrationTest, FansOutOneFrameToFourRealEndpoints) {
         for (const auto& message : received) {
             ASSERT_TRUE(message.has_value());
             EXPECT_EQ(message->payload.size(), payload.size());
-            EXPECT_EQ(message->payload,
-                      std::vector<std::uint8_t>(payload.begin(), payload.end()));
+            EXPECT_EQ(message->payload, std::vector<std::uint8_t>(payload.begin(), payload.end()));
         }
     }
     stop.store(true, std::memory_order_relaxed);

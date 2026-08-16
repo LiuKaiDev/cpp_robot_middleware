@@ -71,7 +71,7 @@ struct alignas(kChunkAlignment) ChunkHeader {
 };
 
 static_assert(std::atomic<std::uint32_t>::is_always_lock_free,
-              "Phase 4 requires lock-free shared uint32 atomics");
+              "shared-memory reference counting requires lock-free uint32 atomics");
 static_assert(sizeof(ChunkHeader) == kChunkAlignment, "ChunkHeader must occupy one cache line");
 static_assert(alignof(ChunkHeader) == kChunkAlignment, "ChunkHeader alignment changed");
 

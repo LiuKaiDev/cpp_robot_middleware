@@ -243,7 +243,7 @@ std::set<std::string> projectSharedMemoryObjects() {
     std::error_code error;
     for (const auto& entry : std::filesystem::directory_iterator("/dev/shm", error)) {
         const std::string name = entry.path().filename().string();
-        if (name.rfind("mw_p5_", 0U) == 0U || name.rfind("mw_q5_", 0U) == 0U) {
+        if (name.rfind("mw_pool_", 0U) == 0U || name.rfind("mw_queue_", 0U) == 0U) {
             names.insert(name);
         }
     }
@@ -267,19 +267,19 @@ ScenarioPaths makePaths(const char* label) {
                            std::to_string(counter.fetch_add(1U)) + "_" + label;
     return ScenarioPaths{
         id,
-        "/tmp/mw_p7_" + id + ".reg",
-        "/tmp/mw_p7_" + id + ".data",
-        "/tmp/mw_p7_" + id + ".ready",
-        "/mw_p7/ros/" + id,
-        "/mw_p7/data/" + id,
-        "p7_bridge_" + id,
-        "p7_bridge_mw_" + id,
+        "/tmp/mw_adapter_" + id + ".reg",
+        "/tmp/mw_adapter_" + id + ".data",
+        "/tmp/mw_adapter_" + id + ".ready",
+        "/adapter/ros/" + id,
+        "/adapter/data/" + id,
+        "adapter_bridge_" + id,
+        "adapter_bridge_mw_" + id,
     };
 }
 
 std::vector<std::string> peerArguments(const ScenarioPaths& paths, const std::string& role,
                                        const std::string& message_type,
-                                       const std::string& text = "phase7-string-payload",
+                                       const std::string& text = "adapter-string-payload",
                                        const std::string& transport = "shm") {
     return {
         "--role",         role,
@@ -393,7 +393,7 @@ class BridgeIntegrationTest : public ::testing::Test {
 
         scenario.first_peer = ChildProcess::start(
             MW_TEST_PEER_PATH, peerArguments(scenario.paths, "mw-subscriber", message_type,
-                                             "phase7-string-payload", transport));
+                                             "adapter-string-payload", transport));
         ASSERT_TRUE(waitUntil(
             [&]() { return ::access(scenario.paths.data_socket.c_str(), F_OK) == 0; }, 5s));
 
@@ -426,7 +426,7 @@ class BridgeIntegrationTest : public ::testing::Test {
 
         scenario.first_peer = ChildProcess::start(
             MW_TEST_PEER_PATH, peerArguments(scenario.paths, "ros-subscriber", message_type,
-                                             "phase7-string-payload", transport));
+                                             "adapter-string-payload", transport));
         scenario.bridge = ChildProcess::start(
             MW_MW_TO_ROS2_PATH, bridgeArguments(scenario.paths, message_type, transport));
         ASSERT_TRUE(waitForTopic(scenario.paths, message_type));
@@ -435,7 +435,7 @@ class BridgeIntegrationTest : public ::testing::Test {
 
         scenario.second_peer = ChildProcess::start(
             MW_TEST_PEER_PATH, peerArguments(scenario.paths, "mw-publisher", message_type,
-                                             "phase7-string-payload", transport));
+                                             "adapter-string-payload", transport));
         ASSERT_EQ(scenario.second_peer.wait(30s), std::optional<int>{0});
         ASSERT_EQ(scenario.first_peer.wait(30s), std::optional<int>{0});
         ASSERT_TRUE(scenario.bridge.running());
@@ -486,7 +486,7 @@ TEST_F(BridgeIntegrationTest, Ros2TopicPubCliReachesMiddleware) {
         waitUntil([&]() { return ::access(scenario.paths.registry.c_str(), F_OK) == 0; }, 5s));
     scenario.first_peer = ChildProcess::start(
         MW_TEST_PEER_PATH, peerArguments(scenario.paths, "mw-subscriber", "std_msgs/msg/String",
-                                         "phase7-cli-payload"));
+                                         "adapter-cli-payload"));
     ASSERT_TRUE(
         waitUntil([&]() { return ::access(scenario.paths.data_socket.c_str(), F_OK) == 0; }, 5s));
     scenario.bridge = ChildProcess::start(MW_ROS2_TO_MW_PATH,
@@ -495,7 +495,7 @@ TEST_F(BridgeIntegrationTest, Ros2TopicPubCliReachesMiddleware) {
 
     scenario.second_peer = ChildProcess::start(
         MW_ROS2_CLI_PATH, {"topic", "pub", "--once", scenario.paths.ros_topic,
-                           "std_msgs/msg/String", "{data: phase7-cli-payload}"});
+                           "std_msgs/msg/String", "{data: adapter-cli-payload}"});
     ASSERT_EQ(scenario.second_peer.wait(30s), std::optional<int>{0});
     ASSERT_EQ(scenario.first_peer.wait(30s), std::optional<int>{0});
     EXPECT_TRUE(scenario.bridge.running());

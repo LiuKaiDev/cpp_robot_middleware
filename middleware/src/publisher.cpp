@@ -151,7 +151,7 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
         detail::PoolDescriptor advertised_pool;
         if (config.transport == TransportType::SharedMemory) {
             advertised_pool.pool_id = nextPoolId();
-            advertised_pool.shm_name = "/mw_p5_" + std::to_string(::getpid()) + "_" +
+            advertised_pool.shm_name = "/mw_pool_" + std::to_string(::getpid()) + "_" +
                                        std::to_string(advertised_pool.pool_id);
             advertised_pool.segment_size =
                 detail::MemoryPool::requiredSegmentSize(config.memory_pool);

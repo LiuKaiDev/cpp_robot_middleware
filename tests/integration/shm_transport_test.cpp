@@ -142,8 +142,7 @@ std::set<std::string> projectSharedMemoryObjects() {
     for (std::filesystem::directory_iterator iterator{"/dev/shm", error}, end;
          !error && iterator != end; iterator.increment(error)) {
         const std::string name = iterator->path().filename().string();
-        if (name.rfind("mw_p3_", 0U) == 0U || name.rfind("mw_p4_", 0U) == 0U ||
-            name.rfind("mw_p5_", 0U) == 0U || name.rfind("mw_q5_", 0U) == 0U) {
+        if (name.rfind("mw_pool_", 0U) == 0U || name.rfind("mw_queue_", 0U) == 0U) {
             objects.insert(name);
         }
     }
@@ -153,8 +152,8 @@ std::set<std::string> projectSharedMemoryObjects() {
 void runTransport(std::size_t payload_size, const std::string& transport) {
     const std::string suffix =
         std::to_string(::getpid()) + "_" + transport + "_" + std::to_string(payload_size);
-    const std::string registry_path = "/tmp/mw_p3_registry_" + suffix + ".sock";
-    const std::string data_path = "/tmp/mw_p3_data_" + suffix + ".sock";
+    const std::string registry_path = "/tmp/mw_test_shm_registry_" + suffix + ".sock";
+    const std::string data_path = "/tmp/mw_test_shm_data_" + suffix + ".sock";
     ChildProcess registry = spawn({MW_REGISTRYD_PATH, "--socket", registry_path});
     ASSERT_TRUE(waitForRegistry(registry_path));
 

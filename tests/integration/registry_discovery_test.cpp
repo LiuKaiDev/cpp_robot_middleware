@@ -136,8 +136,9 @@ ChildProcess spawn(const std::vector<std::string>& arguments, bool discard_outpu
 
 struct Paths {
     explicit Paths(std::string label)
-        : registry("/tmp/mw_phase2_registry_" + std::to_string(::getpid()) + "_" + label + ".sock"),
-          data("/tmp/mw_phase2_data_" + std::to_string(::getpid()) + "_" + label + ".sock") {}
+        : registry("/tmp/mw_test_registry_" + std::to_string(::getpid()) + "_" + label + ".sock"),
+          data("/tmp/mw_test_registry_data_" + std::to_string(::getpid()) + "_" + label + ".sock") {
+    }
 
     std::string registry;
     std::string data;

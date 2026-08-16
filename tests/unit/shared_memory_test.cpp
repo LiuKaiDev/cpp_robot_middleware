@@ -12,7 +12,7 @@ namespace {
 
 std::string regionName(const std::string& label) {
     static unsigned counter = 0;
-    return "/mw_p3_test_" + std::to_string(::getpid()) + "_" + label + "_" +
+    return "/mw_shm_region_test_" + std::to_string(::getpid()) + "_" + label + "_" +
            std::to_string(counter++);
 }
 

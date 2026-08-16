@@ -25,7 +25,7 @@ using namespace std::chrono_literals;
 
 std::string socketPath(const std::string& label) {
     static std::atomic<unsigned> counter{0};
-    return "/tmp/mw_phase1_" + std::to_string(::getpid()) + "_" + label + "_" +
+    return "/tmp/mw_test_pubsub_" + std::to_string(::getpid()) + "_" + label + "_" +
            std::to_string(counter.fetch_add(1)) + ".sock";
 }
 

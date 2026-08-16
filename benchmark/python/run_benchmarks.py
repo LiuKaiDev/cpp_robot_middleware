@@ -130,7 +130,11 @@ def project_shm_snapshot() -> set[str]:
     root = pathlib.Path("/dev/shm")
     if not root.exists():
         return set()
-    return {entry.name for entry in root.iterdir() if entry.name.startswith(("mw_p5_", "mw_q5_"))}
+    return {
+        entry.name
+        for entry in root.iterdir()
+        if entry.name.startswith(("mw_pool_", "mw_queue_"))
+    }
 
 
 def common_command_arguments(case: Case, config: dict[str, Any], run_dir: pathlib.Path, topic: str) -> list[str]:

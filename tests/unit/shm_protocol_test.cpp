@@ -10,7 +10,7 @@ namespace {
 
 mw::detail::ShmNotification makeNotification(std::uint64_t payload_size = 1024U) {
     mw::detail::ShmNotification notification;
-    notification.handle = {"/mw_p3_protocol_test",
+    notification.handle = {"/mw_shm_protocol_test",
                            mw::detail::kSharedMemoryHeaderSize + payload_size,
                            payload_size,
                            7U,
@@ -73,7 +73,7 @@ TEST(ShmProtocolTest, NotificationPreservesLocatorAndHasPayloadIndependentSize) 
 
     const auto decoded = mw::detail::decodeShmNotification(small->data(), small->size());
     ASSERT_TRUE(decoded.has_value());
-    EXPECT_EQ(decoded->handle.shm_name, "/mw_p3_protocol_test");
+    EXPECT_EQ(decoded->handle.shm_name, "/mw_shm_protocol_test");
     EXPECT_EQ(decoded->handle.sequence, 7U);
     EXPECT_EQ(decoded->handle.publish_timestamp_ns, 123456U);
     EXPECT_EQ(decoded->handle.topic_id, 99U);

@@ -251,23 +251,23 @@ sample。复现命令为：
 ```bash
 source /opt/ros/jazzy/setup.bash
 source .work/public/profile/ros2/install/setup.bash
-python3 benchmark/profiling/run_phase8_1_profile.py \
+python3 benchmark/profiling/run_profile.py \
   --output-root .work/public/profile \
   --build-dir .work/public/profile/build \
   --ros-install .work/public/profile/ros2/install
 ```
 
 精简 Profiling 证据位于 `benchmark/profiling/`。原始 Aggregate 保留在
-`benchmark/results/phase8_reference/`，优化后的完整矩阵 Aggregate 单独保留在
-`benchmark/results/phase8_1_reference/`。Profiling file 记录 Attribution、Copy Path analysis、
+`benchmark/results/reference_baseline/`，优化后的完整矩阵 Aggregate 单独保留在
+`benchmark/results/reference_current/`。Profiling file 记录 Attribution、Copy Path analysis、
 限制和 Acceptance evidence。
 
 ## 最终参考结果
 
-主要的已提交 Reference 是 `benchmark/results/phase8_1_reference/`：Git `971129a` 上的
+主要的已提交 Reference 是 `benchmark/results/reference_current/`：Git `971129a` 上的
 441/441 次有效运行和 147/147 个有效聚合组。测量环境为 WSL2、Intel i5-8300H、8 logical CPUs、
 GCC 13.3、Release `-O3 -DNDEBUG -g -fno-omit-frame-pointer`、ROS2 Jazzy 和
-`rmw_fastrtps_cpp`。原始 `phase8_reference` 保留为优化前历史证据。
+`rmw_fastrtps_cpp`。`reference_baseline` 保留为优化前历史证据。
 
 以下 1-to-1 median 将 fixed-rate p50 Latency 与 maximum-rate correct delivered Throughput
 配对展示：

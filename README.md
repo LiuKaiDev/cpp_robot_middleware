@@ -240,13 +240,13 @@ Fanout 会增加 aggregate delivery，但会降低 Publisher logical rate。4 Mi
 delivery 为 UDS 2562.6、Copy 4146.6、Loan 4224.7 MiB/s。direct ROS2 maximum-rate case
 记录了 accounted sequence gaps，其 QoS 不宣称与自定义 Queue policy 等价。
 
-![优化后的 latency 与消息大小](benchmark/results/phase8_1_reference/latency_vs_message_size.png)
+![优化后的 latency 与消息大小](benchmark/results/reference_current/latency_vs_message_size.png)
 
-![优化后的 throughput 与消息大小](benchmark/results/phase8_1_reference/throughput_vs_message_size.png)
+![优化后的 throughput 与消息大小](benchmark/results/reference_current/throughput_vs_message_size.png)
 
 完整 JSON/CSV、CPU 和 fanout 图表见
-[`benchmark/results/phase8_1_reference/`](benchmark/results/phase8_1_reference/)。
-[`phase8_reference/`](benchmark/results/phase8_reference/) 作为紧凑的优化前历史对照保留。
+[`benchmark/results/reference_current/`](benchmark/results/reference_current/)。
+[`reference_baseline/`](benchmark/results/reference_baseline/) 作为紧凑的优化前历史对照保留。
 
 ## 性能分析与 Profiling 证据
 
@@ -288,9 +288,6 @@ MW_BUILD_DIR="$PWD/.work/public/build_release" scripts/demo/run_all_smoke.sh
 - [ROS2 Adapter](docs/ROS2_ADAPTER.md)
 - [Benchmark](docs/BENCHMARK.md)
 - [Known Limitations](docs/KNOWN_LIMITATIONS.md)
-- [Project Completion Checklist](docs/PROJECT_COMPLETION_CHECKLIST.md)
-- [Interview Guide](docs/INTERVIEW_GUIDE.md)
-- [Resume Guide](docs/RESUME.md)
 
 ## 已知限制
 

@@ -51,7 +51,7 @@ int runSubscriberChild(const std::string& path, int ready_fd) {
 
 TEST(ProcessPubSubIntegrationTest, TransfersMessagesAcrossProcesses) {
     constexpr std::uint64_t message_count = 64;
-    const std::string path = "/tmp/mw_phase1_process_" + std::to_string(::getpid()) + ".sock";
+    const std::string path = "/tmp/mw_test_process_pubsub_" + std::to_string(::getpid()) + ".sock";
     int ready_descriptors[2] = {-1, -1};
     ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, ready_descriptors), 0);
     mw::detail::UniqueFd parent_ready{ready_descriptors[0]};

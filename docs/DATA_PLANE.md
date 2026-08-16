@@ -59,8 +59,8 @@ robust-close 并 unlink 其精确 Queue；活动 Publisher 释放该 Endpoint �
 
 ## 命名与 Segment Layout
 
-Pool name 格式为 `/mw_p5_<publisher-pid>_<pool-id>`，Queue name 格式为
-`/mw_q5_<subscriber-pid>_<queue-id>`。Name 不包含原始 Topic text，也不会随消息改变。
+Pool name 格式为 `/mw_pool_<publisher-pid>_<pool-id>`，Queue name 格式为
+`/mw_queue_<subscriber-pid>_<queue-id>`。Name 不包含原始 Topic text，也不会随消息改变。
 
 Segment 包含显式编码的 Pool Header、size-class metadata、Chunk directory，以及按 64-byte
 对齐的 native Chunk Header 和固定容量 payload storage。Field layout、checked arithmetic、

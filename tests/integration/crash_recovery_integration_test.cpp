@@ -454,9 +454,9 @@ std::optional<std::string> publisherPool(const std::string& registry_path,
     return std::nullopt;
 }
 
-TEST(Phase6LivenessIntegrationTest, OpenSocketTimesOutAndSuspectedHeartbeatRecovers) {
+TEST(LivenessIntegrationTest, OpenSocketTimesOutAndSuspectedHeartbeatRecovers) {
     const std::string suffix = std::to_string(::getpid());
-    const std::string registry_path = "/tmp/mw_p6_liveness_" + suffix + ".sock";
+    const std::string registry_path = "/tmp/mw_test_liveness_registry_" + suffix + ".sock";
     RegistryProcess registry{registry_path};
     ASSERT_TRUE(registry.ready());
 
@@ -495,21 +495,22 @@ TEST(Phase6LivenessIntegrationTest, OpenSocketTimesOutAndSuspectedHeartbeatRecov
     replacement_client.unregisterNode(replacement.node_id);
 }
 
-TEST(Phase6CrashIntegrationTest, SubscriberSigkillRecoversLiveViewAndRemainingPeersContinue) {
+TEST(CrashRecoveryIntegrationTest, SubscriberSigkillRecoversLiveViewAndRemainingPeersContinue) {
     const std::string suffix = std::to_string(::getpid());
-    const std::string registry_path = "/tmp/mw_p6_sub_registry_" + suffix + ".sock";
-    const std::string topic = "/phase6/subscriber_crash";
+    const std::string registry_path = "/tmp/mw_test_subscriber_crash_registry_" + suffix + ".sock";
+    const std::string topic = "/test/subscriber_crash";
     RegistryProcess registry{registry_path};
     ASSERT_TRUE(registry.ready());
 
     std::vector<ControlledProcess> subscribers;
     for (int index = 0; index < 4; ++index) {
-        subscribers.push_back(spawnSubscriber(
-            registry_path, "p6_subscriber_" + std::to_string(index), topic,
-            "/tmp/mw_p6_sub_data_" + suffix + "_" + std::to_string(index) + ".sock"));
+        subscribers.push_back(
+            spawnSubscriber(registry_path, "crash_test_subscriber_" + std::to_string(index), topic,
+                            "/tmp/mw_test_subscriber_crash_data_" + suffix + "_" +
+                                std::to_string(index) + ".sock"));
         ASSERT_EQ(subscribers.back().readLine(2s), std::optional<std::string>{"READY"});
     }
-    ControlledProcess publisher = spawnPublisher(registry_path, "p6_publisher", topic, 1U);
+    ControlledProcess publisher = spawnPublisher(registry_path, "crash_test_publisher", topic, 1U);
     ASSERT_EQ(publisher.readLine(2s), std::optional<std::string>{"READY"});
     ASSERT_TRUE(publisher.send('P'));
     ASSERT_EQ(responseError(publisher.readLine(3s)), static_cast<int>(mw::ErrorCode::Ok));
@@ -522,14 +523,14 @@ TEST(Phase6CrashIntegrationTest, SubscriberSigkillRecoversLiveViewAndRemainingPe
               static_cast<int>(mw::ErrorCode::PoolExhausted));
 
     const pid_t dead_pid = subscribers[1].pid();
-    const std::string dead_socket_path = "/tmp/mw_p6_sub_data_" + suffix + "_1.sock";
+    const std::string dead_socket_path = "/tmp/mw_test_subscriber_crash_data_" + suffix + "_1.sock";
     EXPECT_EQ(subscribers[1].signalAndWait(SIGKILL), 128 + SIGKILL);
     for (std::size_t index : {0U, 2U, 3U}) {
         ASSERT_TRUE(subscribers[index].send('R'));
         ASSERT_EQ(subscribers[index].readLine(2s), std::optional<std::string>{"RELEASED"});
     }
     ASSERT_TRUE(waitForNodeCount(registry_path, 4U));
-    const std::string dead_queue_prefix = "mw_q5_" + std::to_string(dead_pid) + "_";
+    const std::string dead_queue_prefix = "mw_queue_" + std::to_string(dead_pid) + "_";
     const auto queue_deadline = std::chrono::steady_clock::now() + 3s;
     bool dead_queue_gone = false;
     while (std::chrono::steady_clock::now() < queue_deadline) {
@@ -559,9 +560,10 @@ TEST(Phase6CrashIntegrationTest, SubscriberSigkillRecoversLiveViewAndRemainingPe
         ASSERT_EQ(subscribers[index].readLine(2s), std::optional<std::string>{"RELEASED"});
     }
 
-    const std::string replacement_socket_path = "/tmp/mw_p6_sub_replacement_" + suffix + ".sock";
-    subscribers[1] =
-        spawnSubscriber(registry_path, "p6_subscriber_replacement", topic, replacement_socket_path);
+    const std::string replacement_socket_path =
+        "/tmp/mw_test_subscriber_replacement_" + suffix + ".sock";
+    subscribers[1] = spawnSubscriber(registry_path, "crash_test_subscriber_replacement", topic,
+                                     replacement_socket_path);
     ASSERT_EQ(subscribers[1].readLine(2s), std::optional<std::string>{"READY"});
     ASSERT_TRUE(publisher.send('P'));
     ASSERT_EQ(responseError(publisher.readLine(3s)), static_cast<int>(mw::ErrorCode::Ok));
@@ -583,20 +585,21 @@ TEST(Phase6CrashIntegrationTest, SubscriberSigkillRecoversLiveViewAndRemainingPe
     }
 }
 
-TEST(Phase6CrashIntegrationTest, PublisherSigkillCleansPoolAndReconnectsRepeatedly) {
+TEST(CrashRecoveryIntegrationTest, PublisherSigkillCleansPoolAndReconnectsRepeatedly) {
     const std::string suffix = std::to_string(::getpid());
-    const std::string registry_path = "/tmp/mw_p6_pub_registry_" + suffix + ".sock";
-    const std::string topic = "/phase6/publisher_crash";
+    const std::string registry_path = "/tmp/mw_test_publisher_crash_registry_" + suffix + ".sock";
+    const std::string topic = "/test/publisher_crash";
     RegistryProcess registry{registry_path};
     ASSERT_TRUE(registry.ready());
-    ControlledProcess subscriber = spawnSubscriber(registry_path, "p6_publisher_survivor", topic,
-                                                   "/tmp/mw_p6_pub_data_" + suffix + ".sock");
+    ControlledProcess subscriber =
+        spawnSubscriber(registry_path, "publisher_crash_survivor", topic,
+                        "/tmp/mw_test_publisher_crash_data_" + suffix + ".sock");
     ASSERT_EQ(subscriber.readLine(2s), std::optional<std::string>{"READY"});
 
     for (int cycle = 0; cycle < 2; ++cycle) {
         SCOPED_TRACE("publisher crash cycle " + std::to_string(cycle));
-        ControlledProcess publisher = spawnPublisher(
-            registry_path, "p6_crashing_publisher_" + std::to_string(cycle), topic, 1U);
+        ControlledProcess publisher =
+            spawnPublisher(registry_path, "crashing_publisher_" + std::to_string(cycle), topic, 1U);
         ASSERT_EQ(publisher.readLine(2s), std::optional<std::string>{"READY"});
         const auto pool = publisherPool(registry_path, topic);
         ASSERT_TRUE(pool.has_value());
@@ -616,7 +619,7 @@ TEST(Phase6CrashIntegrationTest, PublisherSigkillCleansPoolAndReconnectsRepeated
     }
 
     ControlledProcess replacement =
-        spawnPublisher(registry_path, "p6_replacement_publisher", topic, 1U);
+        spawnPublisher(registry_path, "replacement_publisher", topic, 1U);
     ASSERT_EQ(replacement.readLine(2s), std::optional<std::string>{"READY"});
     ASSERT_TRUE(replacement.send('P'));
     ASSERT_EQ(responseError(replacement.readLine(3s)), static_cast<int>(mw::ErrorCode::Ok));
@@ -628,17 +631,18 @@ TEST(Phase6CrashIntegrationTest, PublisherSigkillCleansPoolAndReconnectsRepeated
     EXPECT_EQ(subscriber.stopNormally(), 0);
 }
 
-TEST(Phase6CrashIntegrationTest, BlockedPublisherWakesWhenSubscriberIsKilled) {
+TEST(CrashRecoveryIntegrationTest, BlockedPublisherWakesWhenSubscriberIsKilled) {
     const std::string suffix = std::to_string(::getpid());
-    const std::string registry_path = "/tmp/mw_p6_block_registry_" + suffix + ".sock";
-    const std::string topic = "/phase6/block_crash";
+    const std::string registry_path = "/tmp/mw_test_block_crash_registry_" + suffix + ".sock";
+    const std::string topic = "/test/block_crash";
     RegistryProcess registry{registry_path};
     ASSERT_TRUE(registry.ready());
-    ControlledProcess subscriber = spawnSubscriber(registry_path, "p6_blocked_subscriber", topic,
-                                                   "/tmp/mw_p6_block_data_" + suffix + ".sock", 1U,
-                                                   mw::OverflowPolicy::BlockWithTimeout, 5s);
+    ControlledProcess subscriber =
+        spawnSubscriber(registry_path, "blocked_subscriber", topic,
+                        "/tmp/mw_test_block_crash_data_" + suffix + ".sock", 1U,
+                        mw::OverflowPolicy::BlockWithTimeout, 5s);
     ASSERT_EQ(subscriber.readLine(2s), std::optional<std::string>{"READY"});
-    ControlledProcess publisher = spawnPublisher(registry_path, "p6_blocked_publisher", topic, 2U);
+    ControlledProcess publisher = spawnPublisher(registry_path, "blocked_publisher", topic, 2U);
     ASSERT_EQ(publisher.readLine(2s), std::optional<std::string>{"READY"});
     ASSERT_TRUE(publisher.send('P'));
     ASSERT_EQ(responseError(publisher.readLine(3s)), static_cast<int>(mw::ErrorCode::Ok));
@@ -649,8 +653,8 @@ TEST(Phase6CrashIntegrationTest, BlockedPublisherWakesWhenSubscriberIsKilled) {
     ASSERT_TRUE(unblocked.has_value());
     EXPECT_NE(responseError(*unblocked), static_cast<int>(mw::ErrorCode::Ok));
 
-    subscriber = spawnSubscriber(registry_path, "p6_blocked_replacement", topic,
-                                 "/tmp/mw_p6_block_replacement_" + suffix + ".sock", 1U,
+    subscriber = spawnSubscriber(registry_path, "blocked_subscriber_replacement", topic,
+                                 "/tmp/mw_test_block_replacement_" + suffix + ".sock", 1U,
                                  mw::OverflowPolicy::BlockWithTimeout, 5s);
     ASSERT_EQ(subscriber.readLine(2s), std::optional<std::string>{"READY"});
     ASSERT_TRUE(publisher.send('P'));

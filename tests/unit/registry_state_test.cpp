@@ -114,9 +114,9 @@ TEST(RegistryStateTest, RejectsTransportMismatchAndReportsTransportInDiscovery) 
     RegistryState state;
     const auto publisher_node = state.registerNode(1U, "shm_publisher");
     const auto subscriber_node = state.registerNode(2U, "shm_subscriber");
-    const auto publisher =
-        state.advertise(1U, publisher_node.id, "/transport", "T", "H", 4096U,
-                        mw::TransportType::SharedMemory, {"/mw_p4_registry_state", 17U, 8192U, 1U});
+    const auto publisher = state.advertise(1U, publisher_node.id, "/transport", "T", "H", 4096U,
+                                           mw::TransportType::SharedMemory,
+                                           {"/mw_registry_pool_state", 17U, 8192U, 1U});
     ASSERT_EQ(publisher.error, ErrorCode::Ok);
     EXPECT_EQ(state
                   .subscribe(2U, subscriber_node.id, "/transport", "T", "H", 4096U,
@@ -125,7 +125,7 @@ TEST(RegistryStateTest, RejectsTransportMismatchAndReportsTransportInDiscovery) 
               ErrorCode::TransportMismatch);
 
     const mw::registry::SharedQueueMetadata queue{
-        "/mw_q5_registry_state",
+        "/mw_registry_queue_state",
         18U,
         4096U,
         8U,
@@ -142,7 +142,7 @@ TEST(RegistryStateTest, RejectsTransportMismatchAndReportsTransportInDiscovery) 
     EXPECT_EQ(discovery.transport, mw::TransportType::SharedMemory);
     ASSERT_EQ(discovery.subscribers.size(), 1U);
     EXPECT_EQ(discovery.subscribers.front().queue, queue);
-    EXPECT_EQ(discovery.pool.shm_name, "/mw_p4_registry_state");
+    EXPECT_EQ(discovery.pool.shm_name, "/mw_registry_pool_state");
     EXPECT_EQ(discovery.pool.pool_id, 17U);
     EXPECT_EQ(subscriber.pool, discovery.pool);
     EXPECT_EQ(state.queryTopic("/transport")->transport, mw::TransportType::SharedMemory);

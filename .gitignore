@@ -8,10 +8,10 @@ __pycache__/
 *.py[cod]
 benchmark/results/*
 !benchmark/results/.gitkeep
-!benchmark/results/phase8_reference/
-!benchmark/results/phase8_reference/**
-!benchmark/results/phase8_1_reference/
-!benchmark/results/phase8_1_reference/**
+!benchmark/results/reference_baseline/
+!benchmark/results/reference_baseline/**
+!benchmark/results/reference_current/
+!benchmark/results/reference_current/**
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake

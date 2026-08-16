@@ -21,7 +21,7 @@ sensor_msgs::msg::Image makeImage(std::uint32_t width, std::uint32_t height) {
     sensor_msgs::msg::Image image;
     image.header.stamp.sec = 123;
     image.header.stamp.nanosec = 456789U;
-    image.header.frame_id = "phase7_camera";
+    image.header.frame_id = "test_camera";
     image.height = height;
     image.width = width;
     image.encoding = "rgb8";
@@ -50,7 +50,7 @@ void expectImageEqual(const sensor_msgs::msg::Image& expected,
 TEST(MessageCodecTest, RoundTripsEmptySmallUtf8AndLongStrings) {
     const std::vector<std::string> values{
         "",
-        "phase7",
+        "adapter",
         "UTF-8: \xE4\xBD\xA0\xE5\xA5\xBD",
         std::string(256U * 1024U, 'x'),
     };
@@ -117,7 +117,7 @@ TEST(MessageCodecTest, RejectsSerializedPayloadForWrongRosType) {
     EXPECT_ANY_THROW((MessageCodec::deserialize<geometry_msgs::msg::Twist>(serialized)));
 }
 
-TEST(TypeSupportTest, SupportsExactlyThePhase7Types) {
+TEST(TypeSupportTest, SupportsExactlyTheConfiguredAdapterTypes) {
     EXPECT_EQ(parseMessageType("std_msgs/msg/String"), SupportedMessageType::String);
     EXPECT_EQ(parseMessageType("geometry_msgs/msg/Twist"), SupportedMessageType::Twist);
     EXPECT_EQ(parseMessageType("sensor_msgs/msg/Image"), SupportedMessageType::Image);

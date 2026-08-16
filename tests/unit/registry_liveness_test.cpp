@@ -64,12 +64,12 @@ TEST(RegistryLivenessTest, DeadCleanupReturnsExactResourcesAndPeerEvents) {
     const MonotonicTime start{200ms};
     const auto publisher_node = state.registerNode(1U, "publisher", start);
     const auto subscriber_node = state.registerNode(2U, "subscriber", start);
-    const auto publisher =
-        state.advertise(1U, publisher_node.id, "/fault", "T", "H", 4096U,
-                        mw::TransportType::SharedMemory, {"/mw_p5_liveness", 101U, 8192U, 1U});
+    const auto publisher = state.advertise(1U, publisher_node.id, "/fault", "T", "H", 4096U,
+                                           mw::TransportType::SharedMemory,
+                                           {"/mw_registry_pool_liveness", 101U, 8192U, 1U});
     ASSERT_EQ(publisher.error, ErrorCode::Ok);
     const mw::registry::SharedQueueMetadata queue{
-        "/mw_q5_liveness",
+        "/mw_registry_queue_liveness",
         202U,
         4096U,
         4U,
@@ -98,20 +98,21 @@ TEST(RegistryLivenessTest, DeadCleanupReturnsExactResourcesAndPeerEvents) {
     EXPECT_EQ(replacement_subscriber.error, ErrorCode::Ok);
     EXPECT_EQ(state
                   .advertise(3U, replacement_subscriber.id, "/fault", "T", "H", 4096U,
-                             mw::TransportType::SharedMemory, {"/mw_p5_duplicate", 303U, 8192U, 1U})
+                             mw::TransportType::SharedMemory,
+                             {"/mw_registry_pool_duplicate", 303U, 8192U, 1U})
                   .error,
               ErrorCode::DuplicatePublisher);
 
     const auto publisher_cleanup = state.disconnectConnection(1U);
     ASSERT_EQ(publisher_cleanup.size(), 1U);
     ASSERT_EQ(publisher_cleanup.front().pools.size(), 1U);
-    EXPECT_EQ(publisher_cleanup.front().pools.front().shm_name, "/mw_p5_liveness");
+    EXPECT_EQ(publisher_cleanup.front().pools.front().shm_name, "/mw_registry_pool_liveness");
     const auto replacement_publisher = state.registerNode(4U, "publisher", start + 2ms);
     ASSERT_EQ(replacement_publisher.error, ErrorCode::Ok);
     EXPECT_EQ(state
                   .advertise(4U, replacement_publisher.id, "/fault", "T", "H", 4096U,
                              mw::TransportType::SharedMemory,
-                             {"/mw_p5_replacement", 404U, 8192U, 1U})
+                             {"/mw_registry_pool_replacement", 404U, 8192U, 1U})
                   .error,
               ErrorCode::Ok);
 }

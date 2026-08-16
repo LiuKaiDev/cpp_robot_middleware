@@ -22,15 +22,15 @@ ROS2 对照覆盖 64 KiB 和 4 MiB 的 1-to-1。优化前后验证针对两条 S
 
 ## 文件
 
-- `phase8_1_summary.json`：工具状态、revision、24 组聚焦的优化前后结果、验证信息和优化来源。
+- `profiling_summary.json`：工具状态、revision、24 组聚焦的优化前后结果、验证信息和优化来源。
 - `before_after_summary.csv`：便于检查的扁平化聚焦指标。
 - `hotspot_summary.csv`：所有已观察到的进程 counter 和最常采样到的 wait channel。文件名描述
   调查目标；这些记录不是 symbol-level CPU profile。
 - `syscall_summary.csv`：工具可用性，以及在缺少 `strace` 时能够陈述的有限 syscall boundary 证据。
-- `run_phase8_1_profile.py`：采集代表性原始 profile 的有界 observer。
+- `run_profile.py`：采集代表性原始 profile 的有界 observer。
 
-完整的优化后 441-run 聚合位于 `benchmark/results/phase8_1_reference/`。优化前的历史结果保留在
-`benchmark/results/phase8_reference/`。
+完整的优化后 441-run 聚合位于 `benchmark/results/reference_current/`。优化前的历史结果保留在
+`benchmark/results/reference_baseline/`。
 
 ## 复现
 
@@ -39,7 +39,7 @@ ROS2 对照覆盖 64 KiB 和 4 MiB 的 1-to-1。优化前后验证针对两条 S
 ```bash
 source /opt/ros/jazzy/setup.bash
 source .work/public/profile/ros2/install/setup.bash
-python3 benchmark/profiling/run_phase8_1_profile.py \
+python3 benchmark/profiling/run_profile.py \
   --output-root .work/public/profile \
   --build-dir .work/public/profile/build \
   --ros-install .work/public/profile/ros2/install

@@ -8,7 +8,7 @@ Reference Protocol 和 Public RAII 生命周期见 [Queue 与 Loan](QUEUES_AND_L
 
 ## Pool 生命周期与所有权
 
-SHM Publisher 生成 `/mw_p5_<pid>_<pool-id>` Name，计算完整且经过检查的 Layout，通过 Registry
+SHM Publisher 生成 `/mw_pool_<pid>_<pool-id>` Name，计算完整且经过检查的 Layout，通过 Registry
 advertise descriptor，并使用现有 move-only `SharedMemoryRegion` 创建 POSIX object。创建过程
 执行一次 `shm_open`、一次 `ftruncate` 和一次 writable `mmap`。Publisher 析构前，Pool
 始终保持 mapping。

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "name": "phase8_smoke",
+  "name": "benchmark_smoke",
   "transports": ["uds", "shm_copy", "shm_loan", "ros2"],
   "message_sizes": [64, 65536],
   "subscriber_counts": [1],

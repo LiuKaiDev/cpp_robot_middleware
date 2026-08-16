@@ -30,7 +30,7 @@ mw::detail::PoolDescriptor descriptor(const std::string& label,
     const std::uint64_t pool_id =
         (static_cast<std::uint64_t>(static_cast<std::uint32_t>(::getpid())) << 32U) |
         static_cast<std::uint64_t>(label.size() + 1U);
-    return {"/mw_p4_unit_" + std::to_string(::getpid()) + "_" + label, pool_id,
+    return {"/mw_pool_unit_" + std::to_string(::getpid()) + "_" + label, pool_id,
             mw::detail::MemoryPool::requiredSegmentSize(config), 71U,
             mw::detail::kPoolLayoutVersion};
 }
@@ -140,8 +140,7 @@ TEST(MemoryPoolTest, PublishesWritableLoanWithoutPayloadCopyAndSupportsGuardRefe
     ASSERT_NE(writable.payload, nullptr);
     std::memset(writable.payload, 0xA5, 1000U);
 
-    ASSERT_EQ(pool->publishLoaned(allocation.handle, 1000U, 17U, 170U, 1U),
-              mw::ErrorCode::Ok);
+    ASSERT_EQ(pool->publishLoaned(allocation.handle, 1000U, 17U, 170U, 1U), mw::ErrorCode::Ok);
     ASSERT_EQ(pool->addReference(allocation.handle), mw::ErrorCode::Ok);
     EXPECT_EQ(pool->snapshot(allocation.handle.chunk_index).ref_count, 2U);
     const auto shared = view->read(allocation.handle, 4096U);

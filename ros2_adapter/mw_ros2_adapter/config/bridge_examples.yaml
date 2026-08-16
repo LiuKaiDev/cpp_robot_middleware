@@ -3,8 +3,8 @@
 ros2_to_mw_string:
   ros__parameters:
     registry_socket: /tmp/mw_registry.sock
-    ros_topic: /phase7/string/in
-    mw_topic: /phase7/string
+    ros_topic: /demo/string/in
+    mw_topic: /demo/string
     message_type: std_msgs/msg/String
     transport: shm
     max_message_size: 4194304
@@ -12,8 +12,8 @@ ros2_to_mw_string:
 mw_to_ros2_string:
   ros__parameters:
     registry_socket: /tmp/mw_registry.sock
-    ros_topic: /phase7/string/out
-    mw_topic: /phase7/string
+    ros_topic: /demo/string/out
+    mw_topic: /demo/string
     message_type: std_msgs/msg/String
     transport: shm
     max_message_size: 4194304
@@ -24,8 +24,8 @@ mw_to_ros2_string:
 ros2_to_mw_twist:
   ros__parameters:
     registry_socket: /tmp/mw_registry.sock
-    ros_topic: /phase7/twist/in
-    mw_topic: /phase7/twist
+    ros_topic: /demo/twist/in
+    mw_topic: /demo/twist
     message_type: geometry_msgs/msg/Twist
     transport: shm
     max_message_size: 4194304
@@ -33,8 +33,8 @@ ros2_to_mw_twist:
 mw_to_ros2_twist:
   ros__parameters:
     registry_socket: /tmp/mw_registry.sock
-    ros_topic: /phase7/twist/out
-    mw_topic: /phase7/twist
+    ros_topic: /demo/twist/out
+    mw_topic: /demo/twist
     message_type: geometry_msgs/msg/Twist
     transport: shm
     max_message_size: 4194304
@@ -45,8 +45,8 @@ mw_to_ros2_twist:
 ros2_to_mw_image:
   ros__parameters:
     registry_socket: /tmp/mw_registry.sock
-    ros_topic: /phase7/image/in
-    mw_topic: /phase7/image
+    ros_topic: /demo/image/in
+    mw_topic: /demo/image
     message_type: sensor_msgs/msg/Image
     transport: shm
     max_message_size: 4194304
@@ -54,8 +54,8 @@ ros2_to_mw_image:
 mw_to_ros2_image:
   ros__parameters:
     registry_socket: /tmp/mw_registry.sock
-    ros_topic: /phase7/image/out
-    mw_topic: /phase7/image
+    ros_topic: /demo/image/out
+    mw_topic: /demo/image
     message_type: sensor_msgs/msg/Image
     transport: shm
     max_message_size: 4194304

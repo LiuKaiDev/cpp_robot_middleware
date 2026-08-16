@@ -59,7 +59,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--reference", type=Path,
-        default=REPO_ROOT / "benchmark/results/phase8_1_reference/summary.json",
+        default=REPO_ROOT / "benchmark/results/reference_current/summary.json",
     )
     parser.add_argument("--backpressure-only", action="store_true")
     args = parser.parse_args()

@@ -13,7 +13,7 @@ using mw::detail::PoolRelease;
 
 TEST(PoolProtocolTest, NotificationIsFixedMetadataAndRoundTripsLogicalChunk) {
     const PoolNotification notification{
-        {"/mw_p4_codec", 81U, 4096U, 17U, mw::detail::kPoolLayoutVersion},
+        {"/mw_pool_protocol_codec", 81U, 4096U, 17U, mw::detail::kPoolLayoutVersion},
         {81U, 9U, 4U, 2048U},
         1000U,
         27U,
@@ -44,7 +44,7 @@ TEST(PoolProtocolTest, RejectsMalformedNotificationAndBounds) {
                                   2U};
     EXPECT_FALSE(mw::detail::encodePoolNotification(notification).has_value());
 
-    notification.pool.shm_name = "/mw_p4_valid";
+    notification.pool.shm_name = "/mw_pool_protocol_valid";
     const auto encoded = mw::detail::encodePoolNotification(notification);
     ASSERT_TRUE(encoded.has_value());
     EXPECT_FALSE(mw::detail::decodePoolNotification(encoded->data(), encoded->size() - 1U));

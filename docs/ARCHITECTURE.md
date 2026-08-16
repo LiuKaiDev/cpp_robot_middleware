@@ -138,5 +138,5 @@ Protocol input 具有长度上限并经过显式 decode。Pool/Queue descriptor 
 ## 范围
 
 已实现范围为单台 Linux 主机、每个 Topic 一个 active Publisher、N 个 Subscriber、volatile
-delivery 和普通 OS scheduling。完整边界见[已知限制](KNOWN_LIMITATIONS.md)，证据见
-[项目完成度清单](PROJECT_COMPLETION_CHECKLIST.md)。
+delivery 和普通 OS scheduling。完整边界见[已知限制](KNOWN_LIMITATIONS.md)，性能证据见
+[Benchmark](BENCHMARK.md)。

@@ -31,7 +31,7 @@ inline sensor_msgs::msg::Image makeImage() {
     sensor_msgs::msg::Image message;
     message.header.stamp.sec = 123;
     message.header.stamp.nanosec = 456789U;
-    message.header.frame_id = "phase7_camera";
+    message.header.frame_id = "test_camera";
     message.height = 720U;
     message.width = 1280U;
     message.encoding = "rgb8";

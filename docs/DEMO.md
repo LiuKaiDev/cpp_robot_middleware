@@ -93,7 +93,7 @@ Topic，并验证回传 payload。Twist 和 1280x720 RGB8 Image 由 Adapter 测�
 scripts/demo/demo_benchmark.sh
 ```
 
-该脚本解析 `benchmark/results/phase8_1_reference/summary.json`，不会重跑完整矩阵。它会打印
+该脚本解析 `benchmark/results/reference_current/summary.json`，不会重跑完整矩阵。它会打印
 选定的 p50 latency、throughput、message rate 和 Backpressure median，并列出四个已提交图表
 的路径。
 

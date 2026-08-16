@@ -43,7 +43,7 @@ std::atomic<std::uint32_t> harness_counter{1U};
 class RegistryHarness {
   public:
     explicit RegistryHarness(const std::string& label)
-        : path_("/tmp/mw_phase5_" + std::to_string(::getpid()) + "_" + label + "_" +
+        : path_("/tmp/mw_test_loan_registry_" + std::to_string(::getpid()) + "_" + label + "_" +
                 std::to_string(harness_counter.fetch_add(1U)) + ".sock"),
           server_(path_), thread_([this] {
               while (running_.load(std::memory_order_relaxed)) {
@@ -58,7 +58,7 @@ class RegistryHarness {
 
     mw::RegistryConfig config() const { return mw::RegistryConfig{path_}; }
     std::string dataPath(const std::string& label) const {
-        return "/tmp/mw_phase5_data_" + std::to_string(::getpid()) + "_" + label + "_" +
+        return "/tmp/mw_test_loan_data_" + std::to_string(::getpid()) + "_" + label + "_" +
                std::to_string(harness_counter.fetch_add(1U)) + ".sock";
     }
 
@@ -108,14 +108,14 @@ void expectPayload(const mw::SampleView& view, std::uint8_t seed) {
     }
 }
 
-TEST(Phase5PublicApiTest, LoanCancellationMovesDoublePublishAndViewHoldReuse) {
+TEST(LoanedSampleIntegrationTest, LoanCancellationMovesDoublePublishAndViewHoldReuse) {
     RegistryHarness registry{"lifecycle"};
-    mw::Context publisher_context{"phase5_lifecycle_publisher", registry.config()};
-    auto publisher = publisher_context.createPublisher(
-        "/phase5/lifecycle", publisherConfig(4096U, {{4096U, 1U}}));
-    mw::Context subscriber_context{"phase5_lifecycle_subscriber", registry.config()};
+    mw::Context publisher_context{"loan_lifecycle_publisher", registry.config()};
+    auto publisher = publisher_context.createPublisher("/test/loan_lifecycle",
+                                                       publisherConfig(4096U, {{4096U, 1U}}));
+    mw::Context subscriber_context{"loan_lifecycle_subscriber", registry.config()};
     auto subscriber = subscriber_context.createSubscriber(
-        "/phase5/lifecycle", subscriberConfig(registry.dataPath("lifecycle"), 4096U));
+        "/test/loan_lifecycle", subscriberConfig(registry.dataPath("lifecycle"), 4096U));
 
     std::uint32_t cancelled_index = 0U;
     std::uint32_t cancelled_generation = 0U;
@@ -170,19 +170,18 @@ TEST(Phase5PublicApiTest, LoanCancellationMovesDoublePublishAndViewHoldReuse) {
     EXPECT_NE(reused.generation(), std::get<2>(identity));
 }
 
-TEST(Phase5PublicApiTest, SampleViewSafelyOutlivesSubscriber) {
+TEST(LoanedSampleIntegrationTest, SampleViewSafelyOutlivesSubscriber) {
     RegistryHarness registry{"view_lifetime"};
-    mw::Context publisher_context{"phase5_view_publisher", registry.config()};
-    auto publisher = publisher_context.createPublisher(
-        "/phase5/view_lifetime", publisherConfig(1024U, {{1024U, 1U}}));
+    mw::Context publisher_context{"view_lifetime_publisher", registry.config()};
+    auto publisher = publisher_context.createPublisher("/test/view_lifetime",
+                                                       publisherConfig(1024U, {{1024U, 1U}}));
     std::optional<mw::SampleView> held;
     std::uint32_t chunk_index = 0U;
     std::uint32_t generation = 0U;
     {
-        mw::Context subscriber_context{"phase5_view_subscriber", registry.config()};
+        mw::Context subscriber_context{"view_lifetime_subscriber", registry.config()};
         auto subscriber = subscriber_context.createSubscriber(
-            "/phase5/view_lifetime",
-            subscriberConfig(registry.dataPath("view_lifetime"), 1024U));
+            "/test/view_lifetime", subscriberConfig(registry.dataPath("view_lifetime"), 1024U));
         auto sample = publisher.loan(512U);
         ASSERT_TRUE(sample.valid());
         chunk_index = sample.chunkIndex();
@@ -200,20 +199,20 @@ TEST(Phase5PublicApiTest, SampleViewSafelyOutlivesSubscriber) {
     EXPECT_NE(reused.generation(), generation);
 }
 
-TEST(Phase5PublicApiTest, OnePublisherLoansOneLogicalChunkToFourSubscribers) {
+TEST(LoanedSampleIntegrationTest, OnePublisherLoansOneLogicalChunkToFourSubscribers) {
     RegistryHarness registry{"four"};
-    mw::Context publisher_context{"phase5_four_publisher", registry.config()};
-    auto publisher = publisher_context.createPublisher(
-        "/phase5/four", publisherConfig(4096U, {{4096U, 1U}}));
+    mw::Context publisher_context{"loan_fanout_publisher", registry.config()};
+    auto publisher = publisher_context.createPublisher("/test/loan_fanout",
+                                                       publisherConfig(4096U, {{4096U, 1U}}));
 
     std::vector<mw::Context> contexts;
     std::vector<mw::Subscriber> subscribers;
     contexts.reserve(4U);
     subscribers.reserve(4U);
     for (std::size_t index = 0U; index < 4U; ++index) {
-        contexts.emplace_back("phase5_four_subscriber_" + std::to_string(index), registry.config());
+        contexts.emplace_back("loan_fanout_subscriber_" + std::to_string(index), registry.config());
         subscribers.push_back(contexts.back().createSubscriber(
-            "/phase5/four",
+            "/test/loan_fanout",
             subscriberConfig(registry.dataPath("four_" + std::to_string(index)), 4096U)));
     }
 
@@ -242,22 +241,22 @@ TEST(Phase5PublicApiTest, OnePublisherLoansOneLogicalChunkToFourSubscribers) {
     EXPECT_TRUE(publisher.loan(2048U).valid());
 }
 
-TEST(Phase5PublicApiTest, ConnectedPublisherDiscoversAnAdditionalSubscriber) {
+TEST(LoanedSampleIntegrationTest, ConnectedPublisherDiscoversAnAdditionalSubscriber) {
     RegistryHarness registry{"refresh"};
-    mw::Context publisher_context{"phase5_refresh_publisher", registry.config()};
-    auto publisher = publisher_context.createPublisher(
-        "/phase5/refresh", publisherConfig(256U, {{256U, 4U}}));
-    mw::Context first_context{"phase5_refresh_subscriber_1", registry.config()};
+    mw::Context publisher_context{"discovery_refresh_publisher", registry.config()};
+    auto publisher = publisher_context.createPublisher("/test/discovery_refresh",
+                                                       publisherConfig(256U, {{256U, 4U}}));
+    mw::Context first_context{"discovery_refresh_subscriber_1", registry.config()};
     auto first = first_context.createSubscriber(
-        "/phase5/refresh", subscriberConfig(registry.dataPath("refresh_1"), 256U));
+        "/test/discovery_refresh", subscriberConfig(registry.dataPath("refresh_1"), 256U));
 
     const std::array<std::uint8_t, 32U> payload{};
     ASSERT_EQ(publisher.publish(payload.data(), payload.size()).enqueued, 1U);
     ASSERT_TRUE(first.waitAndTakeView(2s).has_value());
 
-    mw::Context second_context{"phase5_refresh_subscriber_2", registry.config()};
+    mw::Context second_context{"discovery_refresh_subscriber_2", registry.config()};
     auto second = second_context.createSubscriber(
-        "/phase5/refresh", subscriberConfig(registry.dataPath("refresh_2"), 256U));
+        "/test/discovery_refresh", subscriberConfig(registry.dataPath("refresh_2"), 256U));
 
     bool discovered = false;
     const auto deadline = std::chrono::steady_clock::now() + 500ms;
@@ -276,14 +275,14 @@ TEST(Phase5PublicApiTest, ConnectedPublisherDiscoversAnAdditionalSubscriber) {
     EXPECT_TRUE(discovered);
 }
 
-TEST(Phase5PublicApiTest, WakeNotificationsRemainBoundedWhenQueueReturnsToEmpty) {
+TEST(LoanedSampleIntegrationTest, WakeNotificationsRemainBoundedWhenQueueReturnsToEmpty) {
     RegistryHarness registry{"wake_drain"};
-    mw::Context publisher_context{"phase5_wake_publisher", registry.config()};
-    auto publisher = publisher_context.createPublisher(
-        "/phase5/wake_drain", publisherConfig(256U, {{256U, 2U}}));
-    mw::Context subscriber_context{"phase5_wake_subscriber", registry.config()};
+    mw::Context publisher_context{"wake_drain_publisher", registry.config()};
+    auto publisher =
+        publisher_context.createPublisher("/test/wake_drain", publisherConfig(256U, {{256U, 2U}}));
+    mw::Context subscriber_context{"wake_drain_subscriber", registry.config()};
     auto subscriber = subscriber_context.createSubscriber(
-        "/phase5/wake_drain", subscriberConfig(registry.dataPath("wake_drain"), 256U));
+        "/test/wake_drain", subscriberConfig(registry.dataPath("wake_drain"), 256U));
 
     for (std::uint64_t sequence = 1U; sequence <= 5000U; ++sequence) {
         auto sample = publisher.loan(32U);
@@ -296,16 +295,15 @@ TEST(Phase5PublicApiTest, WakeNotificationsRemainBoundedWhenQueueReturnsToEmpty)
     }
 }
 
-TEST(Phase5BackpressureTest, DropNewestAndDropOldestPreserveExpectedSequences) {
+TEST(BackpressureIntegrationTest, DropNewestAndDropOldestPreserveExpectedSequences) {
     for (const auto policy : {mw::OverflowPolicy::DropNewest, mw::OverflowPolicy::DropOldest}) {
         RegistryHarness registry{policy == mw::OverflowPolicy::DropNewest ? "newest" : "oldest"};
-        const std::string topic = policy == mw::OverflowPolicy::DropNewest
-                                      ? "/phase5/drop_newest"
-                                      : "/phase5/drop_oldest";
-        mw::Context publisher_context{"phase5_drop_publisher", registry.config()};
-        auto publisher = publisher_context.createPublisher(
-            topic, publisherConfig(256U, {{256U, 4U}}));
-        mw::Context subscriber_context{"phase5_drop_subscriber", registry.config()};
+        const std::string topic =
+            policy == mw::OverflowPolicy::DropNewest ? "/test/drop_newest" : "/test/drop_oldest";
+        mw::Context publisher_context{"backpressure_publisher", registry.config()};
+        auto publisher =
+            publisher_context.createPublisher(topic, publisherConfig(256U, {{256U, 4U}}));
+        mw::Context subscriber_context{"backpressure_subscriber", registry.config()};
         auto subscriber = subscriber_context.createSubscriber(
             topic, subscriberConfig(registry.dataPath("drop"), 256U, 2U, policy));
 
@@ -325,8 +323,7 @@ TEST(Phase5BackpressureTest, DropNewestAndDropOldestPreserveExpectedSequences) {
             }
         }
 
-        const std::uint64_t first_expected =
-            policy == mw::OverflowPolicy::DropNewest ? 1U : 2U;
+        const std::uint64_t first_expected = policy == mw::OverflowPolicy::DropNewest ? 1U : 2U;
         auto first = subscriber.waitAndTakeView(2s);
         auto second = subscriber.takeView();
         ASSERT_TRUE(first.has_value());
@@ -336,16 +333,15 @@ TEST(Phase5BackpressureTest, DropNewestAndDropOldestPreserveExpectedSequences) {
     }
 }
 
-TEST(Phase5BackpressureTest, BlockPolicyReportsTimeoutAndSuccessfulWake) {
+TEST(BackpressureIntegrationTest, BlockPolicyReportsTimeoutAndSuccessfulWake) {
     RegistryHarness registry{"block"};
-    mw::Context publisher_context{"phase5_block_publisher", registry.config()};
-    auto publisher = publisher_context.createPublisher(
-        "/phase5/block", publisherConfig(256U, {{256U, 4U}}));
-    mw::Context subscriber_context{"phase5_block_subscriber", registry.config()};
+    mw::Context publisher_context{"blocking_policy_publisher", registry.config()};
+    auto publisher = publisher_context.createPublisher("/test/blocking_policy",
+                                                       publisherConfig(256U, {{256U, 4U}}));
+    mw::Context subscriber_context{"blocking_policy_subscriber", registry.config()};
     auto subscriber = subscriber_context.createSubscriber(
-        "/phase5/block",
-        subscriberConfig(registry.dataPath("block"), 256U, 1U,
-                         mw::OverflowPolicy::BlockWithTimeout, 80ms));
+        "/test/blocking_policy", subscriberConfig(registry.dataPath("block"), 256U, 1U,
+                                                  mw::OverflowPolicy::BlockWithTimeout, 80ms));
 
     std::vector<std::uint8_t> payload(64U, 0x31U);
     ASSERT_EQ(publisher.publish(payload.data(), payload.size()).error, mw::ErrorCode::Ok);
@@ -369,17 +365,17 @@ TEST(Phase5BackpressureTest, BlockPolicyReportsTimeoutAndSuccessfulWake) {
     EXPECT_GT(second->sequence(), first->sequence());
 }
 
-TEST(Phase5PublicApiTest, LoanedLargeMessagesAndCopyPathMatch) {
+TEST(LoanedSampleIntegrationTest, LoanedLargeMessagesAndCopyPathMatch) {
     constexpr std::size_t maximum = 4U * 1024U * 1024U;
     RegistryHarness registry{"large"};
-    mw::Context publisher_context{"phase5_large_publisher", registry.config()};
+    mw::Context publisher_context{"large_message_publisher", registry.config()};
     auto publisher = publisher_context.createPublisher(
-        "/phase5/large",
-        publisherConfig(maximum, {{1024U, 2U}, {64U * 1024U, 2U},
-                                  {1024U * 1024U, 2U}, {maximum, 2U}}));
-    mw::Context subscriber_context{"phase5_large_subscriber", registry.config()};
+        "/test/large_message",
+        publisherConfig(maximum,
+                        {{1024U, 2U}, {64U * 1024U, 2U}, {1024U * 1024U, 2U}, {maximum, 2U}}));
+    mw::Context subscriber_context{"large_message_subscriber", registry.config()};
     auto subscriber = subscriber_context.createSubscriber(
-        "/phase5/large", subscriberConfig(registry.dataPath("large"), maximum));
+        "/test/large_message", subscriberConfig(registry.dataPath("large"), maximum));
 
     std::uint8_t seed = 23U;
     for (const std::size_t size :
@@ -403,15 +399,15 @@ TEST(Phase5PublicApiTest, LoanedLargeMessagesAndCopyPathMatch) {
     EXPECT_EQ(std::memcmp(copied_view->data(), copied.data(), copied.size()), 0);
 }
 
-TEST(Phase5BackpressureTest, LongRunUsesBoundedQueueAcrossThousandsOfWraps) {
+TEST(BackpressureIntegrationTest, LongRunUsesBoundedQueueAcrossThousandsOfWraps) {
     RegistryHarness registry{"long"};
-    mw::Context publisher_context{"phase5_long_publisher", registry.config()};
-    auto publisher = publisher_context.createPublisher(
-        "/phase5/long", publisherConfig(256U, {{256U, 4U}}));
-    mw::Context subscriber_context{"phase5_long_subscriber", registry.config()};
+    mw::Context publisher_context{"queue_wrap_publisher", registry.config()};
+    auto publisher =
+        publisher_context.createPublisher("/test/queue_wrap", publisherConfig(256U, {{256U, 4U}}));
+    mw::Context subscriber_context{"queue_wrap_subscriber", registry.config()};
     auto subscriber = subscriber_context.createSubscriber(
-        "/phase5/long", subscriberConfig(registry.dataPath("long"), 256U, 3U,
-                                          mw::OverflowPolicy::DropOldest));
+        "/test/queue_wrap",
+        subscriberConfig(registry.dataPath("long"), 256U, 3U, mw::OverflowPolicy::DropOldest));
 
     std::vector<std::uint8_t> payload(32U, 0x55U);
     for (std::uint64_t sequence = 1U; sequence <= 5000U; ++sequence) {
@@ -426,28 +422,28 @@ TEST(Phase5BackpressureTest, LongRunUsesBoundedQueueAcrossThousandsOfWraps) {
     }
 }
 
-TEST(Phase5PublicApiTest, UdsRejectsLoanAndViewWithoutPretendingToLoan) {
-    const std::string path = "/tmp/mw_phase5_uds_" + std::to_string(::getpid()) + ".sock";
-    mw::Context subscriber_context{"phase5_uds_subscriber"};
-    auto subscriber = subscriber_context.createSubscriber("/phase5/uds",
-                                                          mw::SubscriberConfig{path, 256U});
-    mw::Context publisher_context{"phase5_uds_publisher"};
-    auto publisher = publisher_context.createPublisher("/phase5/uds",
-                                                       mw::PublisherConfig{path, 256U});
+TEST(LoanedSampleIntegrationTest, UdsRejectsLoanAndViewWithoutPretendingToLoan) {
+    const std::string path = "/tmp/mw_test_loan_uds_" + std::to_string(::getpid()) + ".sock";
+    mw::Context subscriber_context{"loan_uds_subscriber"};
+    auto subscriber =
+        subscriber_context.createSubscriber("/test/loan_uds", mw::SubscriberConfig{path, 256U});
+    mw::Context publisher_context{"loan_uds_publisher"};
+    auto publisher =
+        publisher_context.createPublisher("/test/loan_uds", mw::PublisherConfig{path, 256U});
     EXPECT_EQ(publisher.loan(32U).error(), mw::ErrorCode::UnsupportedTransport);
     EXPECT_FALSE(subscriber.takeView().has_value());
     EXPECT_EQ(subscriber.lastError(), mw::ErrorCode::UnsupportedTransport);
 }
 
-TEST(Phase5PublicApiTest, RejectsInvalidQueueConfiguration) {
-    mw::Context context{"phase5_invalid_queue"};
+TEST(LoanedSampleIntegrationTest, RejectsInvalidQueueConfiguration) {
+    mw::Context context{"invalid_queue_config"};
     mw::SubscriberConfig config;
-    config.socket_path = "/tmp/mw_phase5_invalid_" + std::to_string(::getpid()) + ".sock";
+    config.socket_path = "/tmp/mw_test_invalid_queue_" + std::to_string(::getpid()) + ".sock";
     config.queue_depth = 0U;
-    EXPECT_THROW(context.createSubscriber("/phase5/invalid", config), std::invalid_argument);
+    EXPECT_THROW(context.createSubscriber("/test/invalid_queue", config), std::invalid_argument);
     config.queue_depth = 1U;
     config.block_timeout = 0ms;
-    EXPECT_THROW(context.createSubscriber("/phase5/invalid", config), std::invalid_argument);
+    EXPECT_THROW(context.createSubscriber("/test/invalid_queue", config), std::invalid_argument);
 }
 
 } // namespace

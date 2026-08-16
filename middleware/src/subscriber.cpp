@@ -147,7 +147,7 @@ struct Subscriber::Impl {
         detail::QueueDescriptor advertised_queue;
         if (config.transport == TransportType::SharedMemory) {
             advertised_queue.queue_id = nextQueueId();
-            advertised_queue.shm_name = "/mw_q5_" + std::to_string(::getpid()) + "_" +
+            advertised_queue.shm_name = "/mw_queue_" + std::to_string(::getpid()) + "_" +
                                         std::to_string(advertised_queue.queue_id);
             advertised_queue.capacity = config.queue_depth;
             advertised_queue.layout_version = detail::kQueueLayoutVersion;
