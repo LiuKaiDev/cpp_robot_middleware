@@ -1,0 +1,25 @@
+Demo: basic publish/subscribe
+transport=shm payload_size=64 messages=5 topic=/demo/basic/t444450_26347
+NODE_ID	NODE_NAME	STATE
+1	demo_basic_sub_t444450_26347	ALIVE
+topic_id: 1
+topic_name: /demo/basic/t444450_26347
+type_name: mw.examples.Ping
+type_hash: mw.examples.Ping.v1
+transport: shm
+max_message_size: 4194304
+publishers: 0
+subscribers: 1
+--- publisher ---
+sent=5 publish_errors=0
+--- subscriber ---
+received=5 sequence_errors=0 payload_errors=0 pool_id=1908958344249345 chunk_index=4 generation=1 payload_offset=3584
+nodes: 0
+topics: 0
+publishers: 0
+subscribers: 0
+endpoints: 0
+heartbeats_received: 0
+suspected_transitions: 0
+dead_nodes: 0
+DEMO_RESULT basic_pubsub PASS
