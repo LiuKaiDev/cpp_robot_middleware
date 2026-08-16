@@ -343,6 +343,18 @@ std::optional<TopicRecord> RegistryState::queryTopic(const std::string& topic_na
     return topics_.at(iterator->second);
 }
 
+RegistryStatsSnapshot RegistryState::statsSnapshot() const noexcept {
+    return {
+        static_cast<std::uint64_t>(nodes_.size()),
+        static_cast<std::uint64_t>(topics_.size()),
+        static_cast<std::uint64_t>(publishers_.size()),
+        static_cast<std::uint64_t>(subscribers_.size()),
+        metrics_.heartbeat_received,
+        metrics_.suspected_count,
+        metrics_.dead_node_count,
+    };
+}
+
 std::optional<PublisherEndpoint> RegistryState::publisherEndpoint(std::uint64_t endpoint_id) const {
     const auto iterator = publishers_.find(endpoint_id);
     if (iterator == publishers_.end()) {

@@ -49,6 +49,14 @@ TEST(RegistryLivenessTest, TransitionsRecoverAndDeadSessionIsTerminal) {
     EXPECT_EQ(state.metrics().heartbeat_received, 2U);
     EXPECT_EQ(state.metrics().suspected_count, 2U);
     EXPECT_EQ(state.metrics().dead_node_count, 1U);
+    const auto stats = state.statsSnapshot();
+    EXPECT_EQ(stats.node_count, 1U);
+    EXPECT_EQ(stats.topic_count, 0U);
+    EXPECT_EQ(stats.publisher_count, 0U);
+    EXPECT_EQ(stats.subscriber_count, 0U);
+    EXPECT_EQ(stats.heartbeat_received, 2U);
+    EXPECT_EQ(stats.suspected_count, 2U);
+    EXPECT_EQ(stats.dead_node_count, 1U);
 }
 
 TEST(RegistryLivenessTest, DeadCleanupReturnsExactResourcesAndPeerEvents) {

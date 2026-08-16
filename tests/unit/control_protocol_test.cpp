@@ -42,6 +42,7 @@ TEST(ControlProtocolTest, EncodesAndDecodesHeaderAndPayload) {
     EXPECT_EQ(value64, 0x0102030405060708ULL);
     EXPECT_EQ(text, "camera");
     EXPECT_TRUE(reader.empty());
+    EXPECT_TRUE(mw::detail::isKnownRequestOpcode(mw::detail::Opcode::QueryStats));
 }
 
 TEST(ControlProtocolTest, RejectsMalformedHeadersAndPayloadBounds) {

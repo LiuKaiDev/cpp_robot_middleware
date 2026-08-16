@@ -147,6 +147,7 @@ bool isKnownRequestOpcode(Opcode opcode) noexcept {
     case Opcode::QueryTopic:
     case Opcode::AttachHeartbeat:
     case Opcode::Heartbeat:
+    case Opcode::QueryStats:
         return true;
     case Opcode::Response:
         return false;

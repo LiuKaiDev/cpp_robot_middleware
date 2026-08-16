@@ -11,7 +11,8 @@ namespace {
 void printUsage(std::ostream& output) {
     output << "usage: mwctl [--registry PATH] node list\n"
               "       mwctl [--registry PATH] topic list\n"
-              "       mwctl [--registry PATH] topic info TOPIC\n";
+              "       mwctl [--registry PATH] topic info TOPIC\n"
+              "       mwctl [--registry PATH] stats\n";
 }
 
 int run(int argc, char** argv) {
@@ -24,6 +25,25 @@ int run(int argc, char** argv) {
         }
         registry_config.socket_path = argv[argument + 1];
         argument += 2;
+    }
+
+    if (argument >= argc) {
+        printUsage(std::cerr);
+        return 2;
+    }
+
+    if (std::string{argv[argument]} == "stats" && argument + 1 == argc) {
+        mw::detail::RegistryClient client{registry_config};
+        const auto stats = client.queryStats();
+        std::cout << "nodes: " << stats.node_count << '\n'
+                  << "topics: " << stats.topic_count << '\n'
+                  << "publishers: " << stats.publisher_count << '\n'
+                  << "subscribers: " << stats.subscriber_count << '\n'
+                  << "endpoints: " << stats.publisher_count + stats.subscriber_count << '\n'
+                  << "heartbeats_received: " << stats.heartbeat_received << '\n'
+                  << "suspected_transitions: " << stats.suspected_count << '\n'
+                  << "dead_nodes: " << stats.dead_node_count << '\n';
+        return 0;
     }
 
     if (argument + 1 >= argc) {

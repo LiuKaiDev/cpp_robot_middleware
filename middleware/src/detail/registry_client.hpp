@@ -75,6 +75,16 @@ struct RegistryTopicInfo {
     PoolDescriptor pool;
 };
 
+struct RegistryStatsInfo {
+    std::uint64_t node_count{0};
+    std::uint64_t topic_count{0};
+    std::uint64_t publisher_count{0};
+    std::uint64_t subscriber_count{0};
+    std::uint64_t heartbeat_received{0};
+    std::uint64_t suspected_count{0};
+    std::uint64_t dead_node_count{0};
+};
+
 class RegistryClient {
   public:
     explicit RegistryClient(const RegistryConfig& config);
@@ -106,6 +116,7 @@ class RegistryClient {
     std::vector<RegistryNodeInfo> listNodes();
     std::vector<RegistryTopicInfo> listTopics();
     RegistryTopicInfo queryTopic(const std::string& topic_name);
+    RegistryStatsInfo queryStats();
 
   private:
     std::vector<std::uint8_t> request(Opcode opcode, const std::vector<std::uint8_t>& payload,

@@ -452,6 +452,23 @@ struct RegistryServer::Impl {
             queueResponse(fd, header.request_id, ErrorCode::Ok, body.data());
             return;
         }
+        case detail::Opcode::QueryStats: {
+            if (!reader.empty()) {
+                queueResponse(fd, header.request_id, ErrorCode::InvalidControlMessage, {});
+                return;
+            }
+            const RegistryStatsSnapshot stats = state.statsSnapshot();
+            detail::PayloadWriter body;
+            body.writeU64(stats.node_count);
+            body.writeU64(stats.topic_count);
+            body.writeU64(stats.publisher_count);
+            body.writeU64(stats.subscriber_count);
+            body.writeU64(stats.heartbeat_received);
+            body.writeU64(stats.suspected_count);
+            body.writeU64(stats.dead_node_count);
+            queueResponse(fd, header.request_id, ErrorCode::Ok, body.data());
+            return;
+        }
         case detail::Opcode::AttachHeartbeat: {
             std::uint64_t node_id = 0;
             std::uint64_t session_id = 0;

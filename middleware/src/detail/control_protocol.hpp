@@ -29,6 +29,7 @@ enum class Opcode : std::uint16_t {
     QueryTopic = 10,
     AttachHeartbeat = 11,
     Heartbeat = 12,
+    QueryStats = 13,
     Response = 100,
 };
 

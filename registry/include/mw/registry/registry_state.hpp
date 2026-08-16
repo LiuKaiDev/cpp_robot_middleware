@@ -138,6 +138,16 @@ struct RegistryMetrics {
     std::uint64_t dead_node_count{0};
 };
 
+struct RegistryStatsSnapshot {
+    std::uint64_t node_count{0};
+    std::uint64_t topic_count{0};
+    std::uint64_t publisher_count{0};
+    std::uint64_t subscriber_count{0};
+    std::uint64_t heartbeat_received{0};
+    std::uint64_t suspected_count{0};
+    std::uint64_t dead_node_count{0};
+};
+
 struct EndpointResult {
     ErrorCode error{ErrorCode::Ok};
     std::uint64_t topic_id{0};
@@ -201,6 +211,7 @@ class RegistryState {
     std::optional<PublisherEndpoint> publisherEndpoint(std::uint64_t endpoint_id) const;
     std::optional<NodeRecord> node(std::uint64_t node_id) const;
     const RegistryMetrics& metrics() const noexcept { return metrics_; }
+    RegistryStatsSnapshot statsSnapshot() const noexcept;
 
   private:
     NodeRecord* ownedNode(ConnectionId connection, std::uint64_t node_id);

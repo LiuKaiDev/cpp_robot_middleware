@@ -335,6 +335,14 @@ TEST(RegistryDiscoveryIntegrationTest, MwctlQueriesLiveRegistry) {
     EXPECT_NE(info.output.find("transport: uds"), std::string::npos);
     EXPECT_NE(info.output.find("publishers: 1"), std::string::npos);
     EXPECT_NE(info.output.find("subscribers: 1"), std::string::npos);
+
+    const auto stats = runAndCapture({MW_MWCTL_PATH, "--registry", paths.registry, "stats"});
+    EXPECT_EQ(stats.exit_code, 0);
+    EXPECT_NE(stats.output.find("nodes: 2"), std::string::npos);
+    EXPECT_NE(stats.output.find("topics: 1"), std::string::npos);
+    EXPECT_NE(stats.output.find("publishers: 1"), std::string::npos);
+    EXPECT_NE(stats.output.find("subscribers: 1"), std::string::npos);
+    EXPECT_NE(stats.output.find("endpoints: 2"), std::string::npos);
 }
 
 TEST(RegistryDiscoveryIntegrationTest, RejectsMalformedControlFramesWithoutStateMutation) {

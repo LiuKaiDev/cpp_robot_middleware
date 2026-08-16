@@ -376,6 +376,19 @@ RegistryTopicInfo RegistryClient::queryTopic(const std::string& topic_name) {
     return topic;
 }
 
+RegistryStatsInfo RegistryClient::queryStats() {
+    const auto body = request(Opcode::QueryStats, {}, request_timeout_);
+    PayloadReader reader{body};
+    RegistryStatsInfo stats;
+    if (!reader.readU64(stats.node_count) || !reader.readU64(stats.topic_count) ||
+        !reader.readU64(stats.publisher_count) || !reader.readU64(stats.subscriber_count) ||
+        !reader.readU64(stats.heartbeat_received) || !reader.readU64(stats.suspected_count) ||
+        !reader.readU64(stats.dead_node_count) || !reader.empty()) {
+        throw MiddlewareError(ErrorCode::InvalidControlMessage, "invalid registry stats response");
+    }
+    return stats;
+}
+
 std::vector<std::uint8_t> RegistryClient::request(Opcode opcode,
                                                   const std::vector<std::uint8_t>& payload,
                                                   std::chrono::milliseconds timeout) {
