@@ -1,28 +1,28 @@
-# START HERE
+# Start Here
 
-This is the bootstrap/context package for `cpp_robot_middleware`.
+`cpp_robot_middleware` is complete through the planned Phase 9 scope. It is a Linux/C++17 local
+multi-process Pub/Sub middleware with separate UDS control and UDS/SHM data planes, bounded
+multi-subscriber ownership, crash recovery, a separate ROS2 adapter, and reproducible benchmarks.
 
-It intentionally does **not** implement the middleware.
+Start with [README.md](README.md) for the project overview, architecture, measured results, and
+limitations. The shortest executable path is:
 
-Use it to seed an empty GitHub repository before asking Codex to implement
-Phase 0.
+```bash
+cmake -S . -B .work/phase_9/build_release -DCMAKE_BUILD_TYPE=Release
+cmake --build .work/phase_9/build_release -j
+scripts/demo/demo_basic_pubsub.sh
+```
 
-## Included
+Then use:
 
-- `PROJECT_PLAN.md` — complete original project plan; source of truth.
-- `AGENTS.md` — repository-wide rules for Codex.
-- `GITHUB_REPO_INFO.md` — recommended GitHub repository metadata.
-- `CODEX_TASKS/PHASE_0.md` — first implementation task for Codex.
-- `docs/DEVELOPMENT_WORKFLOW.md` — Git/WSL/VS Code/Codex workflow.
-- `.gitignore` — minimal bootstrap ignores.
+- [Demo guide](docs/DEMO.md) for seven bounded scenarios;
+- [Architecture](docs/ARCHITECTURE.md) for process, thread, dependency, and ownership boundaries;
+- [Protocol](docs/PROTOCOL.md), [memory model](docs/MEMORY_MODEL.md), and
+  [message lifecycle](docs/MESSAGE_LIFECYCLE.md) for implementation details;
+- [Benchmark](docs/BENCHMARK.md) for methodology and the optimized committed reference;
+- [Known limitations](docs/KNOWN_LIMITATIONS.md) for claims the project intentionally does not make;
+- [Interview guide](docs/INTERVIEW_GUIDE.md) and [resume guide](docs/RESUME.md) for portfolio use.
 
-## Next action
-
-1. Create the empty GitHub repository.
-2. Clone it inside WSL.
-3. Copy this package's contents into the repository root.
-4. Commit/push the bootstrap context.
-5. Create `feat/phase-0-bootstrap`.
-6. Open the repository in VS Code from WSL.
-7. Give Codex `CODEX_TASKS/PHASE_0.md`.
-8. Build/test/accept Phase 0 before moving to Phase 1.
+`PROJECT_PLAN.md` remains the source of truth for scope. Historical phase tasks and reports remain
+under `CODEX_TASKS/` and `docs/reports/` as engineering evidence; they are not the primary reader
+path.

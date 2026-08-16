@@ -1,11 +1,11 @@
-# Phase 6 Failure Model
+# Failure Model
 
 ## Scope
 
-Phase 6 covers one Linux host, one running `mw_registryd`, one active publisher per topic, and N
-subscribers. It detects middleware process failure through control-socket EOF/HUP or a missed
-heartbeat lease. It repairs registry state and the exact POSIX SHM/socket resources registered by
-that process. Tests use real `SIGKILL` for publisher and subscriber failure.
+The v1 failure model covers one Linux host, one running `mw_registryd`, one active publisher per
+topic, and N subscribers. It detects middleware process failure through control-socket EOF/HUP or
+a missed heartbeat lease. It repairs registry state and the exact POSIX SHM/socket resources
+registered by that process. Tests use real `SIGKILL` for publisher and subscriber failure.
 
 It does not provide distributed consensus, persistence, retransmission, exactly-once delivery,
 hard real-time deadlines, or recovery from host/kernel failure and arbitrary memory corruption.
@@ -145,18 +145,22 @@ registry state and tolerate the other route having already completed.
 
 ## Reconnect Flow
 
-A live publisher resolves discovery on each SHM publish, removes vanished subscribers, and connects
-new endpoint IDs while preserving surviving connections. A live subscriber observes publisher
-death through its old data socket or peer event, resets only the old pool, and accepts a replacement
-connection. Registry one-publisher enforcement allows a replacement only after the dead publisher
-record is removed.
+A live SHM publisher reuses its last compatible discovery result for at most 1 ms. An empty
+connection set, socket/queue failure, disconnect, or peer-death event invalidates the window
+immediately; otherwise the next bounded refresh removes vanished subscribers and connects new
+endpoint IDs while preserving survivors. A live subscriber observes publisher death through its
+old data socket or peer event, resets only the old pool, and accepts a replacement connection.
+Registry one-publisher enforcement allows a replacement only after the dead publisher record is
+removed.
 
 ## Metrics
 
 `RegistryState` records heartbeat receives, ALIVE-to-SUSPECTED transitions, and dead-node cleanup
-count. Queue stats record owner-death recovery and peer reset counts in addition to Phase 5 queue
-counters. `mwctl` exposes liveness state, but Phase 6 does not add a complete metrics export or
-visualization system.
+count. Queue stats record owner-death recovery and peer reset counts in addition to the queue policy
+counters. `mwctl stats` exposes a current registry-object snapshot and those three lifetime
+liveness counters. Per-publication queue, drop, block, and allocation metrics remain in
+`PublishResult` and benchmark artifacts; there is no general metrics export or visualization
+system.
 
 ## Known Limitations
 

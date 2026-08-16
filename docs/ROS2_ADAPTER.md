@@ -2,7 +2,7 @@
 
 ## Architecture And Dependency Direction
 
-Phase 7 adds a bidirectional adapter without changing the middleware core:
+The project provides a bidirectional adapter without changing the middleware core:
 
 ```text
 ROS2 applications
@@ -129,29 +129,30 @@ automatically equivalent and the adapter does not translate one into the other.
 Build and install the core first:
 
 ```bash
-cmake -S . -B build_core -DCMAKE_BUILD_TYPE=Debug
-cmake --build build_core -j
-ctest --test-dir build_core --output-on-failure
-cmake --install build_core --prefix "$PWD/_install"
+cmake -S . -B .work/phase_9/build_release -DCMAKE_BUILD_TYPE=Release
+cmake --build .work/phase_9/build_release -j
+ctest --test-dir .work/phase_9/build_release --output-on-failure
+cmake --install .work/phase_9/build_release --prefix "$PWD/.work/phase_9/install"
 ```
 
 Then build the independent adapter package:
 
 ```bash
 source /opt/ros/$ROS_DISTRO/setup.bash
-colcon --log-base log_ros2 build \
+colcon --log-base .work/phase_9/ros2/log build \
   --base-paths ros2_adapter \
-  --build-base build_ros2 \
-  --install-base install_ros2 \
+  --build-base .work/phase_9/ros2/build \
+  --install-base .work/phase_9/ros2/install \
   --cmake-args \
-    -DCMAKE_BUILD_TYPE=Debug \
-    "-DCMAKE_PREFIX_PATH=$PWD/_install;/opt/ros/$ROS_DISTRO"
-colcon --log-base log_ros2 test \
+    -DCMAKE_BUILD_TYPE=Release \
+    "-DCMAKE_PREFIX_PATH=$PWD/.work/phase_9/install;/opt/ros/$ROS_DISTRO"
+colcon --log-base .work/phase_9/ros2/log test \
   --base-paths ros2_adapter \
-  --build-base build_ros2 \
-  --install-base install_ros2
-colcon --log-base log_ros2 test-result --test-result-base build_ros2 --verbose
-source install_ros2/setup.bash
+  --build-base .work/phase_9/ros2/build \
+  --install-base .work/phase_9/ros2/install
+colcon --log-base .work/phase_9/ros2/log test-result \
+  --test-result-base .work/phase_9/ros2/build --verbose
+source .work/phase_9/ros2/install/setup.bash
 ```
 
 Tests use an isolated `ROS_DOMAIN_ID`, localhost discovery, unique node/topic/socket names, bounded
@@ -178,7 +179,7 @@ section by remapping the node name and passing the file:
 ```bash
 ros2 run mw_ros2_adapter mw_to_ros2_bridge --ros-args \
   -r __node:=mw_to_ros2_twist \
-  --params-file install_ros2/mw_ros2_adapter/share/mw_ros2_adapter/config/bridge_examples.yaml
+  --params-file .work/phase_9/ros2/install/mw_ros2_adapter/share/mw_ros2_adapter/config/bridge_examples.yaml
 ```
 
 Do not connect an unisolated ROS topic A to middleware topic B in both directions back to the same
@@ -223,7 +224,7 @@ test is the practical large-message demo:
 
 ```bash
 source /opt/ros/$ROS_DISTRO/setup.bash
-ctest --test-dir build_ros2/mw_ros2_adapter \
+ctest --test-dir .work/phase_9/ros2/build/mw_ros2_adapter \
   -R mw_ros2_adapter_integration_test --output-on-failure
 ```
 
@@ -250,3 +251,5 @@ reconnect after a registry daemon restart, matching the Phase 6 failure boundary
 - DDS QoS is not mapped to middleware queue policy.
 - No loop detection, dynamic reconfiguration, registry restart recovery, custom RMW, benchmark,
   profiling, or performance comparison is included.
+
+The bounded end-to-end String bridge demo is documented in [DEMO.md](DEMO.md).

@@ -2,10 +2,9 @@
 
 ## Scope And Separation
 
-Phase 2 introduced registry-based discovery on one Linux host. Phase 3 added transport metadata,
-Phase 4 added publisher pool metadata, Phase 5 added per-subscriber queue descriptors, and Phase 6
-adds liveness/session messages plus exact crash cleanup while keeping control and payload
-responsibilities separate:
+The final v1 control plane provides registry-based discovery, transport/pool/queue metadata,
+liveness sessions, read-only inspection, and exact crash cleanup on one Linux host while keeping
+control and payload responsibilities separate:
 
 ```text
 Context / Publisher / Subscriber / mwctl
@@ -75,6 +74,7 @@ The current protocol defines these operations:
 | `LIST_NODES` | Return sorted live registry node records |
 | `LIST_TOPICS` | Return sorted live topic records |
 | `QUERY_TOPIC` | Return type, size, publisher count, and subscriber count |
+| `QUERY_STATS` | Return current object counts and lifetime liveness counters |
 | `ATTACH_HEARTBEAT` | Bind a dedicated connection to one node/session identity |
 | `HEARTBEAT` | Renew the lease and return liveness plus bounded peer-death events |
 | `RESPONSE` | Carry an error code, message, and operation-specific body |
@@ -151,11 +151,14 @@ events. Repeating cleanup is harmless because missing records and names are acce
 ./build/bin/mwctl node list
 ./build/bin/mwctl topic list
 ./build/bin/mwctl topic info /ping
+./build/bin/mwctl stats
 ```
 
 Use `--registry PATH` before the resource name for a non-default control socket. Node and topic
 lists are sorted by name for deterministic output. `node list` includes `ALIVE` or `SUSPECTED`;
-DEAD records have already been removed.
+DEAD records have already been removed. `stats` reports current node, topic, publisher, subscriber,
+and endpoint counts plus lifetime heartbeat-receive, suspected-transition, and dead-node counters.
+It is a bounded registry snapshot, not a general per-publication metrics exporter.
 
 ## Known Limitations
 

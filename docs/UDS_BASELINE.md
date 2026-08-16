@@ -2,9 +2,9 @@
 
 ## Scope
 
-Phase 1 provides a copied-payload, Linux-local baseline for one publisher, one subscriber, and one
-explicitly configured topic. It exists to validate the public API and establish a correctness
-baseline for later transports. It is not a shared-memory or zero-copy transport.
+The direct UDS mode provides a copied-payload, Linux-local baseline for one publisher, one
+subscriber, and one explicitly configured topic. It validates the public API and remains the
+comparison transport for registry and SHM paths. It is not a shared-memory or zero-copy transport.
 
 ## Connection Model
 
@@ -26,7 +26,8 @@ socket(AF_UNIX, SOCK_STREAM)
 ```
 
 The socket path is supplied through `PublisherConfig` and `SubscriberConfig`; it is not hardcoded
-inside the transport. Phase 1 has no registry or discovery service.
+inside the transport. Direct mode has no registry or discovery service; registry-discovered UDS is
+documented in [CONTROL_PLANE.md](CONTROL_PLANE.md).
 
 ## Frame Layout
 
@@ -116,5 +117,6 @@ by the synchronous publisher.
 - No subscriber queue, backpressure policy, persistence, retransmission, or worker thread.
 - The direct Phase 1 path has no shared memory, memory pool, loaned sample, or automatic crash
   cleanup. Registry-mode lifecycle recovery is documented separately.
-- No ROS2 adapter or benchmark framework.
-- A pathname left by an unclean subscriber exit must be removed by the operator in Phase 1.
+- A pathname left by an unclean direct-mode subscriber exit must be removed by the operator.
+- The final project provides a separate ROS2 adapter and benchmark, but neither changes this direct
+  UDS mode's ownership or copy semantics.

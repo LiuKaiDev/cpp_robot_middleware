@@ -2,14 +2,14 @@
 
 ## Goals And Boundary
 
-Phase 8 measures the existing local cross-process data paths before any profiling or optimization.
-It compares correctness, steady-state latency, delivered throughput, CPU, RSS, loss, overflow,
-allocation failure, and blocking across four implementations. A result is useful whether custom
-middleware is faster or slower than ROS2; correctness and a reproducible comparison are the
-acceptance criteria.
+The automated benchmark compares the final local cross-process data paths for correctness,
+steady-state latency, delivered throughput, CPU, RSS, loss, overflow, allocation failure, and
+blocking across four implementations. A result is useful whether custom middleware is faster or
+slower than ROS2; correctness and a reproducible comparison are the acceptance criteria.
 
-Phase 8 does not measure startup/discovery latency, use `perf` or `strace`, tune the scheduler, pin
-CPUs, add lock-free structures, or change transport algorithms in response to a score.
+Startup/discovery latency is outside the matrix. The benchmark does not tune the scheduler, pin
+CPUs, or add lock-free structures in response to a score. Phase 8.1 profiling and its available
+tools are documented separately below.
 
 ## Transport Definitions
 
@@ -268,6 +268,36 @@ Compact profiling evidence is under `benchmark/profiling/`. The original Phase 8
 under `benchmark/results/phase8_reference/`; the optimized complete-matrix aggregate is separate
 under `benchmark/results/phase8_1_reference/`. See
 `docs/reports/PHASE_8_1_REPORT.md` for attribution, copy-path analysis, limitations, and acceptance.
+
+## Final Reference Results
+
+The primary committed reference is `benchmark/results/phase8_1_reference/`: 441/441 valid runs and
+147/147 valid aggregate groups at Git `971129a`. It was measured on WSL2 with an Intel i5-8300H,
+8 logical CPUs, GCC 13.3, Release `-O3 -DNDEBUG -g -fno-omit-frame-pointer`, ROS2 Jazzy, and
+`rmw_fastrtps_cpp`. The original `phase8_reference` is retained as historical pre-optimization
+evidence.
+
+These 1-to-1 medians pair fixed-rate p50 latency with maximum-rate correct delivered throughput:
+
+| Size | UDS p50 us / MiB/s | SHM Copy p50 us / MiB/s | SHM Loan p50 us / MiB/s | ROS2 p50 us / MiB/s |
+| ---: | ---: | ---: | ---: | ---: |
+| 64 B | 80.7 / 9.0 | 170.0 / 8.0 | 157.2 / 9.2 | 154.1 / 1.4 |
+| 64 KiB | 97.6 / 1104.6 | 254.0 / 1070.5 | 240.4 / 1063.9 | 184.5 / 529.4 |
+| 1 MiB | 742.7 / 1167.9 | 407.8 / 1405.5 | 287.7 / 1474.5 | 11205.7 / 920.1 |
+| 4 MiB | 2053.4 / 1113.0 | 626.9 / 1500.0 | 274.1 / 1524.6 | 11945.9 / 947.0 |
+
+UDS had the lowest p50 through 64 KiB on this run. At 4 MiB, SHM Copy and Loan delivered 1500.0
+and 1524.6 MiB/s versus 1113.0 MiB/s for UDS, while SHM's mapped pool raised total publisher plus
+subscriber peak RSS to about 92.8 MiB versus 16.3 MiB for UDS. One-to-four aggregate delivery at
+4 MiB was 2562.6 MiB/s UDS, 4146.6 Copy, and 4224.7 Loan; aggregate fanout is not publisher logical
+throughput. The focused slow-subscriber experiment recorded about 98.9% drops for both drop
+policies, while the 1 ms block policy delivered 452.7 messages/s and spent 4480.8 ms blocked.
+
+Regenerate the compact human-readable selection without rerunning the matrix:
+
+```bash
+scripts/demo/demo_benchmark.sh
+```
 
 ## Interpretation And Limitations
 

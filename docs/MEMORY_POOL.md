@@ -2,10 +2,10 @@
 
 ## Scope
 
-Phase 4 replaced the Phase 3 one-object-per-message SHM path with one preallocated pool for the
-lifetime of each SHM publisher. Phase 5 added subscriber queues and public loan/view APIs; Phase 6
-adds crash-time ownership repair around the same chunk lifecycle. See [QUEUES_AND_LOANING.md](QUEUES_AND_LOANING.md)
-for the enqueue/reference protocol and public RAII lifetimes.
+Each SHM publisher owns one preallocated pool for its endpoint lifetime. Subscriber queues,
+public loan/view APIs, and crash-time ownership repair operate around the same chunk lifecycle. See
+[QUEUES_AND_LOANING.md](QUEUES_AND_LOANING.md) for the enqueue/reference protocol and public RAII
+lifetimes.
 
 ## Pool Lifetime And Ownership
 
@@ -159,9 +159,9 @@ between application fill and subscriber read. All paths continue to avoid per-me
 `shm_open`/`ftruncate`/`mmap`/`munmap`/`shm_unlink` operations.
 
 The chunk allocator performs no per-message payload allocation. Publisher connection bookkeeping,
-wake/release polling containers, control-protocol strings/vectors, and each owning
-subscriber message can still allocate ordinary process heap memory. Their measurement and later
-optimization are deferred to the benchmark/profiling phases.
+wake/release polling containers, control-protocol strings/vectors, and each owning subscriber
+message can still allocate ordinary process heap memory. The measured behavior and profiling
+limits are documented in [BENCHMARK.md](BENCHMARK.md) and the Phase 8.1 report.
 
 ## Known Limitations
 
@@ -170,4 +170,6 @@ optimization are deferred to the benchmark/profiling phases.
   heartbeat dead timeout; there is no independent per-view lease.
 - Registry loss is not recovered inside an existing context, and arbitrary pool-header corruption
   is not repaired.
-- No ROS2 adapter and no benchmark conclusion.
+- The ROS2 adapter retains serialization copies and does not extend the native loan/view lifetime.
+- Reference performance is host-specific; see [BENCHMARK.md](BENCHMARK.md), not the pool design,
+  for measured conclusions.

@@ -2,8 +2,8 @@
 
 ## Scope
 
-Phase 6 retains the two independently selectable Linux-local payload transports and the Phase 5
-copy/loan choices while adding peer-crash recovery:
+The v1 data plane has two independently selectable Linux-local payload transports, with copy/loan
+choices and peer-crash recovery:
 
 - `TransportType::UnixDomainSocket` is the copied Phase 1 baseline.
 - `TransportType::SharedMemory` is the registry-discovered preallocated POSIX SHM pool transport.
@@ -133,5 +133,6 @@ conclusion is made in Phase 5.
 
 `eventfd` and `SCM_RIGHTS` remain future candidates rather than implemented optimizations. Recovery
 is scoped to registered resources and process crashes observed through control EOF/HUP or heartbeat
-timeout; it does not claim recovery from arbitrary shared-memory corruption or host failure. Phase
-8.1 measurements and limitations are documented in `benchmark/profiling/` and the phase report.
+timeout; it does not claim recovery from arbitrary shared-memory corruption or host failure. See
+[MESSAGE_LIFECYCLE.md](MESSAGE_LIFECYCLE.md) for ownership and [BENCHMARK.md](BENCHMARK.md) for the
+Phase 8.1 measurements and their limits.

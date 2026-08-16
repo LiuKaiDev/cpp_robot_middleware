@@ -2,10 +2,10 @@
 
 ## Scope
 
-Phase 5 added a bounded queue per SHM subscriber, explicit overflow behavior, writable publisher
-loans, and read-only subscriber views. Phase 6 makes the queue mutex robust and adds crash repair.
-The queue contains metadata only. Payload bytes remain in the publisher-owned memory pool
-documented in [MEMORY_POOL.md](MEMORY_POOL.md).
+Each SHM subscriber has a bounded queue with explicit overflow behavior; publishers can expose
+writable loans and subscribers can retain read-only views. The process-shared queue mutex is robust
+and participates in crash repair. The queue contains metadata only. Payload bytes remain in the
+publisher-owned memory pool documented in [MEMORY_POOL.md](MEMORY_POOL.md).
 
 The copied UDS baseline and the ordinary SHM `Publisher::publish()` path remain available.
 
@@ -186,6 +186,6 @@ untouched. Repeated cleanup tolerates missing records and already-unlinked names
 
 After publisher death, the registry unlinks the exact pool name and tells subscribers to discard
 only entries for that pool and reset the old mapping/connection. A replacement publisher may then
-connect and install a new pool descriptor. Phase 6 does not repair arbitrary queue memory
-corruption, recover a failed registry daemon in-place, provide ROS2 integration, or claim hard
-real-time behavior.
+connect and install a new pool descriptor. Recovery does not repair arbitrary queue memory
+corruption, recover a failed registry daemon in-place, or claim hard real-time behavior. The
+separate ROS2 adapter preserves these queue semantics while adding serialization copies.

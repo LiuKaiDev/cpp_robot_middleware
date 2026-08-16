@@ -9,8 +9,9 @@
 - Initialize repository on GitHub:
   - Add README: **No**
   - Add .gitignore: **No**
-  - Choose a license: **No for the initial empty repository**
-- Suggested license later: MIT, after you decide the copyright holder/name.
+  - Choose a license: **No**
+- Current status: no project license has been selected. The owner must choose the license and
+  copyright holder explicitly.
 
 ## GitHub description
 
@@ -21,8 +22,8 @@ Linux + C++17 local Pub/Sub middleware with a Unix Domain Socket control plane, 
 `cpp17`, `linux`, `ipc`, `shared-memory`, `unix-domain-sockets`, `pubsub`,
 `middleware`, `robotics`, `ros2`, `cmake`, `concurrency`, `memory-pool`
 
-Do not add `zero-copy` as a repository topic until the loaned-sample data path is
-actually implemented and verified end-to-end.
+Avoid a repository-wide `zero-copy` claim. Only the native SHM `LoanedSample` to `SampleView`
+payload path is verified to avoid middleware payload copies; other paths retain documented copies.
 
 ## Branch / tag convention
 

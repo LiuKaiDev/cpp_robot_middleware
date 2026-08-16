@@ -1,138 +1,56 @@
 # Development Workflow
 
-## 1. Create the GitHub repository
+## Repository Rules
 
-Create an empty repository named:
+`PROJECT_PLAN.md` is the scope source of truth and `AGENTS.md` defines the engineering workflow.
+Keep the core independent of ROS2, preserve the control/data-plane split, and require benchmark or
+profiling evidence before transport optimization. Do not claim repository-wide zero-copy.
 
-`cpp_robot_middleware`
+Use `.work/phase_X/` for build, install, log, sanitizer, demo, and raw result output. Permanent
+source, tests, documentation, reports, and compact committed reference evidence stay in their
+existing repository directories.
 
-Recommended: Public.
-
-Do not initialize it with README, `.gitignore`, or license because this
-bootstrap package provides the initial repository context.
-
-## 2. Clone in WSL
-
-Use your preferred GitHub authentication method.
-
-Example with SSH:
+## Core Build And Test
 
 ```bash
-cd ~/code
-git clone git@github.com:<YOUR_GITHUB_USER>/cpp_robot_middleware.git
-cd cpp_robot_middleware
+cmake -S . -B .work/local/build_debug -DCMAKE_BUILD_TYPE=Debug
+cmake --build .work/local/build_debug -j
+ctest --test-dir .work/local/build_debug --output-on-failure
 ```
 
-## 3. Copy the bootstrap package contents into the repository root
+Project code builds with `-Wall -Wextra -Wpedantic`. Run separate configurations with
+`-DENABLE_ASAN=ON` and `-DENABLE_UBSAN=ON` when changing ownership, parsing, queues, or IPC.
 
-The repository root should contain at least:
-
-```text
-PROJECT_PLAN.md
-AGENTS.md
-GITHUB_REPO_INFO.md
-START_HERE.md
-CODEX_TASKS/PHASE_0.md
-docs/DEVELOPMENT_WORKFLOW.md
-.gitignore
-```
-
-## 4. Create the bootstrap commit
+## Install Contract
 
 ```bash
-git add PROJECT_PLAN.md AGENTS.md GITHUB_REPO_INFO.md START_HERE.md   CODEX_TASKS docs .gitignore
-git commit -m "chore: add project plan and Codex bootstrap"
-git push -u origin main
+cmake -S . -B .work/local/build_release -DCMAKE_BUILD_TYPE=Release
+cmake --build .work/local/build_release -j
+cmake --install .work/local/build_release --prefix .work/local/install
+cmake -S examples/external_consumer -B .work/local/external_consumer \
+  -DCMAKE_PREFIX_PATH="$PWD/.work/local/install"
+cmake --build .work/local/external_consumer -j
+.work/local/external_consumer/mw_external_consumer
 ```
 
-## 5. Create the Phase 0 branch
+Downstream projects consume `find_package(mw CONFIG REQUIRED)` and `mw::mw_core`.
+
+## Demos And Documentation
+
+Run the bounded non-ROS scenarios and local Markdown-link validation with:
 
 ```bash
-git switch -c feat/phase-0-bootstrap
+MW_BUILD_DIR="$PWD/.work/local/build_release" scripts/demo/run_all_smoke.sh
+python3 scripts/validate_markdown_links.py
 ```
 
-## 6. Open from WSL in VS Code
+The ROS2 adapter is a separate ament package and must be built against the installed core. See
+[ROS2_ADAPTER.md](ROS2_ADAPTER.md). Benchmark commands and evidence boundaries are in
+[BENCHMARK.md](BENCHMARK.md).
 
-From the repository root:
+## Change Discipline
 
-```bash
-code .
-```
-
-Then start Codex from your VS Code / terminal workflow inside this repository.
-
-## 7. Give Codex the Phase 0 task
-
-Use the full contents of:
-
-`CODEX_TASKS/PHASE_0.md`
-
-Because `AGENTS.md` is repository-wide guidance, keep it short and stable;
-phase-specific requirements belong in `CODEX_TASKS/`.
-
-## 8. Human acceptance after Codex finishes
-
-At minimum run the exact commands documented by Codex and confirm:
-
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build -j
-ctest --test-dir build --output-on-failure
-```
-
-Also verify the install/export and external-consumer commands from the Phase 0
-report.
-
-## 9. Commit Phase 0 only after acceptance
-
-Suggested commits (split if the change set naturally supports it):
-
-```bash
-git add .
-git commit -m "build: scaffold C++17 middleware project"
-```
-
-If tests/docs are substantial, split them:
-
-```text
-build: scaffold C++17 middleware project
-test: add phase 0 packaging smoke tests
-docs: add phase 0 report
-```
-
-Push:
-
-```bash
-git push -u origin feat/phase-0-bootstrap
-```
-
-After review/merge into `main`, tag the accepted state:
-
-```bash
-git switch main
-git pull --ff-only
-git tag phase-0
-git push origin phase-0
-```
-
-Then request the Phase 1 Codex task. Do not let Codex continue directly into
-Phase 1 from the Phase 0 prompt.
-
-## 10. Temporary Work And Permanent Artifacts
-
-All phase-local build, install, log, sanitizer, and raw profiling output belongs under:
-
-```text
-.work/phase_X/
-```
-
-Do not create ad hoc `build_*`, `install_*`, or `log_*` directories in the repository root. After
-the phase report and compact evidence are safely written, remove the phase work tree:
-
-```bash
-cmake -E remove_directory .work/phase_X
-```
-
-Source, tests, documentation, `CODEX_TASKS/`, reports under `docs/reports/`, and compact benchmark
-or profiling reference artifacts are permanent repository content and must not be removed during
-work-tree cleanup.
+Keep commits purpose-oriented, preserve unrelated worktree changes, and run checks in proportion
+to the ownership and process boundaries touched. Do not commit `.work/`, raw benchmark matrices,
+coverage output, profiler output, build trees, or generated ROS logs. Do not create tags or push
+unless the project owner explicitly requests it.
