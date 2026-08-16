@@ -1,0 +1,64 @@
+# Each section is selected by remapping the ROS node name to the section name.
+# Run opposite directions on different ROS topic names to avoid feedback loops.
+ros2_to_mw_string:
+  ros__parameters:
+    registry_socket: /tmp/mw_registry.sock
+    ros_topic: /phase7/string/in
+    mw_topic: /phase7/string
+    message_type: std_msgs/msg/String
+    transport: shm
+    max_message_size: 4194304
+
+mw_to_ros2_string:
+  ros__parameters:
+    registry_socket: /tmp/mw_registry.sock
+    ros_topic: /phase7/string/out
+    mw_topic: /phase7/string
+    message_type: std_msgs/msg/String
+    transport: shm
+    max_message_size: 4194304
+    queue_depth: 8
+    overflow_policy: drop_oldest
+    block_timeout_ms: 100
+
+ros2_to_mw_twist:
+  ros__parameters:
+    registry_socket: /tmp/mw_registry.sock
+    ros_topic: /phase7/twist/in
+    mw_topic: /phase7/twist
+    message_type: geometry_msgs/msg/Twist
+    transport: shm
+    max_message_size: 4194304
+
+mw_to_ros2_twist:
+  ros__parameters:
+    registry_socket: /tmp/mw_registry.sock
+    ros_topic: /phase7/twist/out
+    mw_topic: /phase7/twist
+    message_type: geometry_msgs/msg/Twist
+    transport: shm
+    max_message_size: 4194304
+    queue_depth: 8
+    overflow_policy: drop_oldest
+    block_timeout_ms: 100
+
+ros2_to_mw_image:
+  ros__parameters:
+    registry_socket: /tmp/mw_registry.sock
+    ros_topic: /phase7/image/in
+    mw_topic: /phase7/image
+    message_type: sensor_msgs/msg/Image
+    transport: shm
+    max_message_size: 4194304
+
+mw_to_ros2_image:
+  ros__parameters:
+    registry_socket: /tmp/mw_registry.sock
+    ros_topic: /phase7/image/out
+    mw_topic: /phase7/image
+    message_type: sensor_msgs/msg/Image
+    transport: shm
+    max_message_size: 4194304
+    queue_depth: 4
+    overflow_policy: drop_oldest
+    block_timeout_ms: 100

@@ -2,6 +2,8 @@
 build/
 build_*/
 _install/
+install_ros2*/
+log_ros2*/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake

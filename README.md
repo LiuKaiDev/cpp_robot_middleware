@@ -13,20 +13,20 @@ provides a focused environment for studying the IPC, resource-lifetime, backpres
 performance tradeoffs beneath a robotics communication API without implementing a full DDS or
 ROS2 RMW stack.
 
-## Current Status: Phase 6 - Robustness / Lifecycle
+## Current Status: Phase 7 - ROS2 Adapter
 
-Phase 6 adds registry heartbeats, ALIVE/SUSPECTED/DEAD liveness, session identity, immediate
-control-connection failure cleanup, bounded outstanding-reference recovery, robust process-shared
-queue repair, and reconnect handling after publisher or subscriber crashes. The Phase 5 loan/view
-and bounded queue behavior remains supported. The verified scope is Linux single-host operation;
-it is not a distributed fault-tolerant or arbitrary-kernel-failure guarantee.
+Phase 7 adds an independent bidirectional ROS2 adapter for `std_msgs/msg/String`,
+`geometry_msgs/msg/Twist`, and `sensor_msgs/msg/Image`. It serializes through public `rclcpp` APIs
+and bridges both UDS and SHM middleware transports. The middleware core remains ROS2-independent;
+the adapter is a separate ament package that consumes installed `mw::mw_core`.
 
 ## Architecture Direction
 
 The architecture separates the `mw_registryd` UDS control plane from publisher-to-subscriber data
 transfer. Registry protocol v5 distributes pool metadata plus each subscriber's queue descriptor
 without owning payload memory or queue storage. Direct mode retains the Phase 1 UDS baseline. The
-core library remains independent of ROS2.
+core library remains independent of ROS2. The dependency direction is exclusively
+`mw_ros2_adapter -> mw::mw_core`.
 
 ## Implemented
 
@@ -74,6 +74,15 @@ core library remains independent of ROS2.
 - Bounded per-endpoint outstanding handle tracking and exactly-once release repair
 - Robust process-shared queue mutex owner-death recovery and blocked-producer wakeup
 - Publisher and subscriber reconnect after peer `SIGKILL`, including replacement endpoints
+- Independent `mw_ros2_adapter` ament package consuming the installed core package
+- `ros2_to_mw_bridge` and `mw_to_ros2_bridge` executables
+- Explicit String, Twist, and Image dispatch through `rclcpp::Serialization<T>`
+- Canonical ROS type names plus stable versioned adapter wire identifiers
+- SHM adapter transmit through `LoanedSample` and receive through `SampleView`
+- UDS adapter compatibility through the owning middleware API
+- ROS parameter configuration, launch file, and six-section YAML examples
+- Bidirectional real-process ROS2 integration tests, including a 1280x720 RGB8 Image
+- Real `ros2 topic pub --once`, normal cleanup, and bridge `SIGKILL` cleanup coverage
 
 ## Build
 
@@ -135,6 +144,35 @@ behavior, [docs/DATA_PLANE.md](docs/DATA_PLANE.md) for both payload paths,
 [docs/MEMORY_POOL.md](docs/MEMORY_POOL.md) for the pool layout, and
 [docs/QUEUES_AND_LOANING.md](docs/QUEUES_AND_LOANING.md) for Phase 5 queue and RAII lifecycles.
 
+## ROS2 Adapter
+
+Build and install the core before building the independent ROS2 package:
+
+```bash
+cmake --install build --prefix "$PWD/_install"
+source /opt/ros/$ROS_DISTRO/setup.bash
+colcon --log-base log_ros2 build \
+  --base-paths ros2_adapter \
+  --build-base build_ros2 \
+  --install-base install_ros2 \
+  --cmake-args "-DCMAKE_PREFIX_PATH=$PWD/_install;/opt/ros/$ROS_DISTRO"
+source install_ros2/setup.bash
+```
+
+Run a bridge with ROS parameters or use the installed launch file:
+
+```bash
+ros2 launch mw_ros2_adapter bridge.launch.py \
+  direction:=ros2_to_mw_bridge \
+  ros_topic:=/robot/text/in \
+  mw_topic:=/robot/text \
+  message_type:=std_msgs/msg/String \
+  transport:=shm
+```
+
+See [docs/ROS2_ADAPTER.md](docs/ROS2_ADAPTER.md) for parameters, YAML examples, bidirectional
+demos, type compatibility, shutdown behavior, and exact serialization/copy boundaries.
+
 ## Install
 
 ```bash
@@ -171,7 +209,7 @@ target_link_libraries(example PRIVATE mw::mw_core)
 - Phase 4: Memory pool, chunk lifecycle, and multiple subscribers.
 - Phase 5: Ring buffer, backpressure, and loaned samples.
 - Phase 6: Heartbeat, crash recovery, and resource cleanup.
-- Phase 7: ROS2 adapter.
+- Phase 7: ROS2 adapter (complete).
 - Phase 8: Benchmarking, profiling, and evidence-based optimization.
 - Phase 9: Final documentation and demos.
 
@@ -181,8 +219,11 @@ target_link_libraries(example PRIVATE mw::mw_core)
 - UDS notifications remain in use; `eventfd` and `SCM_RIGHTS` optimizations are deferred.
 - The heartbeat lease covers process liveness while the registry daemon is running; it does not
   cover distributed hosts, kernel failure, power loss, or arbitrary memory corruption.
-- No ROS2 adapter, benchmark framework, or final metrics/visualization system exists.
-- Phase 7 was not implemented.
+- The ROS2 adapter supports only String, Twist, and Image; it has no dynamic introspection or
+  complete ROS schema-evolution system.
+- The ROS2 serialized bridge path allocates/copies adapter buffers and is not end-to-end zero-copy.
+- No benchmark framework, profiling result, ROS2 performance comparison, or final
+  metrics/visualization system exists.
 - Registry requests are synchronous and are not multiplexed across application threads.
 - The UDS path copies payload data through kernel socket buffers and is not zero-copy.
 - Ordinary SHM `publish()` copies into the pool, and owning `ReceivedMessage` copies from a
