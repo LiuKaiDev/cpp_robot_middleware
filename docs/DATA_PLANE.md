@@ -77,6 +77,12 @@ frame containing the pool descriptor and queue ID; it carries no handle or busin
 release is fixed at 32 bytes and repeats the handle identity. One wake can cover multiple entries
 because the queue, not the UDS stream, is the source of truth.
 
+Once the subscriber has installed the publisher pool mapping, `waitAndTakeView()` drains redundant
+complete wake frames with nonblocking receives before checking the shared queue. This keeps the
+metadata socket bounded when the queue repeatedly transitions from empty to nonempty; the queue
+remains authoritative, and malformed, mismatched, or disconnected wake streams retain their
+existing error handling.
+
 The logical handle contains pool ID, global chunk index, allocation generation, and payload offset.
 Tests compare those fields across subscriber processes rather than comparing unrelated virtual
 addresses.
@@ -125,6 +131,7 @@ application filling `LoanedSample` and reading the same logical chunk through `S
 not a claim that UDS, all SHM APIs, or the middleware as a whole is zero-copy. No performance
 conclusion is made in Phase 5.
 
-`eventfd`, `SCM_RIGHTS`, ROS2, and benchmark results remain unimplemented. Recovery is scoped to
-registered resources and process crashes observed through control EOF/HUP or heartbeat timeout; it
-does not claim recovery from arbitrary shared-memory corruption or host failure.
+`eventfd` and `SCM_RIGHTS` remain future candidates rather than implemented optimizations. Recovery
+is scoped to registered resources and process crashes observed through control EOF/HUP or heartbeat
+timeout; it does not claim recovery from arbitrary shared-memory corruption or host failure. Phase
+8.1 measurements and limitations are documented in `benchmark/profiling/` and the phase report.

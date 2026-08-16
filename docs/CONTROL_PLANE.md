@@ -130,6 +130,12 @@ For publisher-first startup, `ADVERTISE_TOPIC` succeeds immediately. The first `
 subscription completes that pending request; the original publisher then connects without being
 restarted. Publisher payload sequence numbering begins only after discovery succeeds.
 
+After an SHM publisher has at least one established connection, it reuses the last compatible
+discovery result for at most 1 ms instead of synchronously resolving on every publication. An empty
+connection set, data-socket/queue failure, disconnect, or peer-death event invalidates that refresh
+window immediately. A subscriber joining while other subscribers remain connected is discovered on
+the next bounded refresh. UDS discovery behavior is unchanged.
+
 Normal endpoint destruction sends unadvertise/unsubscribe. The last session owner unregisters the
 node. Primary control EOF/HUP immediately removes the node and endpoints. If the primary socket
 stays open but heartbeats stop, the monotonic state machine changes ALIVE to SUSPECTED and then

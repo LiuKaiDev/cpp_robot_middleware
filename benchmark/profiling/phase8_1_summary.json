@@ -1,0 +1,2039 @@
+{
+  "schema_version": 1,
+  "baseline_git_revision": "4caf333234c644fd7405db4fb93a9039939587ad",
+  "baseline_git_dirty": false,
+  "optimized_source_git_revision": "971129a4495fcd870efe05b51d2dfe8e0087a0a9",
+  "after_profile_manifest_git_revision": "4caf333234c644fd7405db4fb93a9039939587ad",
+  "after_profile_manifest_git_dirty": true,
+  "after_profile_source_matches_optimized_revision": true,
+  "profile_build": {
+    "build_type": "Release",
+    "cxx_flags_release": "-O3 -DNDEBUG -g -fno-omit-frame-pointer"
+  },
+  "tools": {
+    "perf": "unavailable",
+    "strace": "unavailable",
+    "perf_event_paranoid": "2",
+    "kptr_restrict": "1",
+    "fallback_observer": "procfs-boundary-snapshot-plus-100ms-wchan-sampling"
+  },
+  "representative_profile": {
+    "before_case_count": 46,
+    "before_all_valid": true,
+    "after_case_count": 46,
+    "after_all_valid": true,
+    "repetitions_per_case": 1
+  },
+  "focused_before_after": {
+    "case_group_count": 24,
+    "repetitions_per_group": 3,
+    "all_valid": true,
+    "cases": [
+      {
+        "transport": "shm_copy",
+        "profile": "latency",
+        "message_size_bytes": 64,
+        "subscriber_count": 1,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 221047.0,
+            "after": 167643.0,
+            "change_percent": -24.159567874705377
+          },
+          "latency_p99_ns": {
+            "before": 442578.8600000006,
+            "after": 450612.0000000001,
+            "change_percent": 1.8150753969585098
+          },
+          "messages_per_second": {
+            "before": 999.9820653216584,
+            "after": 999.9774771072921,
+            "change_percent": -0.00045882966559496197
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 0.06103406160410513,
+            "after": 0.06103378156172437,
+            "change_percent": -0.00045882966559496197
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 0.06103406160410513,
+            "after": 0.06103378156172437,
+            "change_percent": -0.00045882966559496197
+          },
+          "publisher_cpu_percent": {
+            "before": 9.579257516423713,
+            "after": 8.382120986224354,
+            "change_percent": -12.497174526802922
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 3.392770257650052,
+            "after": 4.19108459409938,
+            "change_percent": 23.529867212472787
+          },
+          "publisher_rss_bytes": {
+            "before": 4632576.0,
+            "after": 4644864.0,
+            "change_percent": 0.2652519893899141
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 4681728.0,
+            "after": 4694016.0,
+            "change_percent": 0.2624671916010568
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_time_ns": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          }
+        }
+      },
+      {
+        "transport": "shm_loan",
+        "profile": "latency",
+        "message_size_bytes": 64,
+        "subscriber_count": 1,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 208167.5,
+            "after": 160794.0,
+            "change_percent": -22.757394886329518
+          },
+          "latency_p99_ns": {
+            "before": 387551.2900000001,
+            "after": 428530.1500000002,
+            "change_percent": 10.573790116915905
+          },
+          "messages_per_second": {
+            "before": 999.9825563042879,
+            "after": 999.9803705853215,
+            "change_percent": -0.0002185757094097518
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 0.06103409157130663,
+            "after": 0.061033958165608,
+            "change_percent": -0.0002185757094097518
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 0.06103409157130663,
+            "after": 0.061033958165608,
+            "change_percent": -0.0002185757094097518
+          },
+          "publisher_cpu_percent": {
+            "before": 9.380398391203597,
+            "after": 8.182722564263708,
+            "change_percent": -12.767856726245242
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 3.392910056392791,
+            "after": 3.991409398919113,
+            "change_percent": 17.639705520594397
+          },
+          "publisher_rss_bytes": {
+            "before": 4628480.0,
+            "after": 4620288.0,
+            "change_percent": -0.1769911504424737
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 4726784.0,
+            "after": 4694016.0,
+            "change_percent": -0.6932409012131768
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_time_ns": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          }
+        }
+      },
+      {
+        "transport": "shm_copy",
+        "profile": "throughput",
+        "message_size_bytes": 64,
+        "subscriber_count": 1,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 97408.5,
+            "after": 45834.0,
+            "change_percent": -52.94661143534702
+          },
+          "latency_p99_ns": {
+            "before": 238314.43999999977,
+            "after": 167728.59999999986,
+            "change_percent": -29.61878432544833
+          },
+          "messages_per_second": {
+            "before": 10479.83027914863,
+            "after": 129777.54084739689,
+            "change_percent": 1138.3553682697607
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 0.6396380785613177,
+            "after": 7.920992483361626,
+            "change_percent": 1138.3553682697607
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 0.6396380785613177,
+            "after": 7.920992483361626,
+            "change_percent": 1138.3553682697607
+          },
+          "publisher_cpu_percent": {
+            "before": 58.276367455689396,
+            "after": 69.85014435248992,
+            "change_percent": 19.860154985810794
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 19.95741527441349,
+            "after": 88.60989740715866,
+            "change_percent": 343.9948569931371
+          },
+          "publisher_rss_bytes": {
+            "before": 4644864.0,
+            "after": 4644864.0,
+            "change_percent": 0.0
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 4612096.0,
+            "after": 4620288.0,
+            "change_percent": 0.1776198934280604
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 0.0,
+            "after": 159772.0,
+            "change_percent": null
+          },
+          "blocked_time_ns": {
+            "before": 0.0,
+            "after": 1691105827.0,
+            "change_percent": null
+          }
+        }
+      },
+      {
+        "transport": "shm_loan",
+        "profile": "throughput",
+        "message_size_bytes": 64,
+        "subscriber_count": 1,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 93462.0,
+            "after": 22975.0,
+            "change_percent": -75.41781686674798
+          },
+          "latency_p99_ns": {
+            "before": 230763.83000000002,
+            "after": 149901.64999999988,
+            "change_percent": -35.041098078498756
+          },
+          "messages_per_second": {
+            "before": 10174.595392956486,
+            "after": 151499.41417081858,
+            "change_percent": 1388.996941103882
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 0.6210080195896293,
+            "after": 9.246790415699376,
+            "change_percent": 1388.996941103882
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 0.6210080195896293,
+            "after": 9.246790415699376,
+            "change_percent": 1388.996941103882
+          },
+          "publisher_cpu_percent": {
+            "before": 59.67333438469262,
+            "after": 87.41355936045979,
+            "change_percent": 46.48680229084545
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 19.558633084224873,
+            "after": 88.0132253741319,
+            "change_percent": 349.9968121244602
+          },
+          "publisher_rss_bytes": {
+            "before": 4620288.0,
+            "after": 4636672.0,
+            "change_percent": 0.35460992907800915
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 4653056.0,
+            "after": 4603904.0,
+            "change_percent": -1.0563380281690127
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 1.0,
+            "after": 13221.0,
+            "change_percent": 1322000.0
+          },
+          "blocked_time_ns": {
+            "before": 1841113.0,
+            "after": 334280020.0,
+            "change_percent": 18056.4097369363
+          }
+        }
+      },
+      {
+        "transport": "shm_copy",
+        "profile": "latency",
+        "message_size_bytes": 65536,
+        "subscriber_count": 1,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 258771.5,
+            "after": 255074.0,
+            "change_percent": -1.4288667801516053
+          },
+          "latency_p99_ns": {
+            "before": 516478.87999999983,
+            "after": 515725.5499999985,
+            "change_percent": -0.14585882001628692
+          },
+          "messages_per_second": {
+            "before": 499.98615988310826,
+            "after": 499.9906516747856,
+            "change_percent": 0.0008983832029407779
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 31.249134992694266,
+            "after": 31.2494157296741,
+            "change_percent": 0.0008983832029407779
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 31.249134992694266,
+            "after": 31.2494157296741,
+            "change_percent": 0.0008983832029407779
+          },
+          "publisher_cpu_percent": {
+            "before": 6.9847544532827905,
+            "after": 6.984832412665276,
+            "change_percent": 0.0011161363367540034
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 3.991501207020931,
+            "after": 4.191064541424367,
+            "change_percent": 4.999706227131018
+          },
+          "publisher_rss_bytes": {
+            "before": 4726784.0,
+            "after": 4767744.0,
+            "change_percent": 0.8665511265164572
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 4714496.0,
+            "after": 4714496.0,
+            "change_percent": 0.0
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_time_ns": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          }
+        }
+      },
+      {
+        "transport": "shm_loan",
+        "profile": "latency",
+        "message_size_bytes": 65536,
+        "subscriber_count": 1,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 244030.0,
+            "after": 249503.5,
+            "change_percent": 2.2429619309101367
+          },
+          "latency_p99_ns": {
+            "before": 484989.6399999992,
+            "after": 472709.5099999999,
+            "change_percent": -2.5320396534654455
+          },
+          "messages_per_second": {
+            "before": 499.9884359674599,
+            "after": 499.9866729552297,
+            "change_percent": -0.0003526106012397001
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 31.249277247966244,
+            "after": 31.249167059701858,
+            "change_percent": -0.0003526106012397001
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 31.249277247966244,
+            "after": 31.249167059701858,
+            "change_percent": -0.0003526106012397001
+          },
+          "publisher_cpu_percent": {
+            "before": 6.785643200757742,
+            "after": 6.785466381921837,
+            "change_percent": -0.0026057785632693786
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 4.191132565173899,
+            "after": 4.191148810904196,
+            "change_percent": 0.0003876214852205351
+          },
+          "publisher_rss_bytes": {
+            "before": 4780032.0,
+            "after": 4726784.0,
+            "change_percent": -1.1139674378748965
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 4706304.0,
+            "after": 4747264.0,
+            "change_percent": 0.870322019147074
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_time_ns": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          }
+        }
+      },
+      {
+        "transport": "shm_copy",
+        "profile": "throughput",
+        "message_size_bytes": 65536,
+        "subscriber_count": 1,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 102531.5,
+            "after": 459254.0,
+            "change_percent": 347.9150309904761
+          },
+          "latency_p99_ns": {
+            "before": 337789.8000000003,
+            "after": 1087985.749999994,
+            "change_percent": 222.08958056163715
+          },
+          "messages_per_second": {
+            "before": 8223.37296648371,
+            "after": 17408.400517138474,
+            "change_percent": 111.69416233570462
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 513.9608104052319,
+            "after": 1088.0250323211546,
+            "change_percent": 111.69416233570462
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 513.9608104052319,
+            "after": 1088.0250323211546,
+            "change_percent": 111.69416233570462
+          },
+          "publisher_cpu_percent": {
+            "before": 64.06193424458823,
+            "after": 55.68140078788678,
+            "change_percent": -13.081923853102229
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 47.298063601144584,
+            "after": 99.18746330555808,
+            "change_percent": 109.70723905736767
+          },
+          "publisher_rss_bytes": {
+            "before": 5328896.0,
+            "after": 5267456.0,
+            "change_percent": -1.152959262106068
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 5222400.0,
+            "after": 5259264.0,
+            "change_percent": 0.7058823529411784
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 46.0,
+            "after": 51304.0,
+            "change_percent": 111430.4347826087
+          },
+          "blocked_time_ns": {
+            "before": 5855726.0,
+            "after": 2153401777.0,
+            "change_percent": 36674.29198360716
+          }
+        }
+      },
+      {
+        "transport": "shm_loan",
+        "profile": "throughput",
+        "message_size_bytes": 65536,
+        "subscriber_count": 1,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 99161.0,
+            "after": 456054.0,
+            "change_percent": 359.91266727846636
+          },
+          "latency_p99_ns": {
+            "before": 195815.03999999998,
+            "after": 831007.3500000014,
+            "change_percent": 324.3838215900073
+          },
+          "messages_per_second": {
+            "before": 8470.662609240742,
+            "after": 17139.59001104694,
+            "change_percent": 102.34060547222326
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 529.4164130775464,
+            "after": 1071.2243756904338,
+            "change_percent": 102.34060547222326
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 529.4164130775464,
+            "after": 1071.2243756904338,
+            "change_percent": 102.34060547222326
+          },
+          "publisher_cpu_percent": {
+            "before": 64.06463525669179,
+            "after": 53.48680795427825,
+            "change_percent": -16.511180091841148
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 51.88933135769218,
+            "after": 99.18871284603037,
+            "change_percent": 91.15434762935412
+          },
+          "publisher_rss_bytes": {
+            "before": 5332992.0,
+            "after": 5283840.0,
+            "change_percent": -0.9216589861751112
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 5263360.0,
+            "after": 5255168.0,
+            "change_percent": -0.15564202334630295
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 279.0,
+            "after": 52693.0,
+            "change_percent": 18786.37992831541
+          },
+          "blocked_time_ns": {
+            "before": 37483367.0,
+            "after": 2282399271.0,
+            "change_percent": 5989.0988555003605
+          }
+        }
+      },
+      {
+        "transport": "shm_copy",
+        "profile": "latency",
+        "message_size_bytes": 65536,
+        "subscriber_count": 4,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 297067.0,
+            "after": 310384.5,
+            "change_percent": 4.482995418541935
+          },
+          "latency_p99_ns": {
+            "before": 617917.1800000003,
+            "after": 606889.2000000002,
+            "change_percent": -1.7847019563366207
+          },
+          "messages_per_second": {
+            "before": 499.9868009484391,
+            "after": 499.98870215528837,
+            "change_percent": 0.0003802514077611008
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 31.249175059277444,
+            "after": 31.249293884705523,
+            "change_percent": 0.0003802514077611008
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 124.99670023710978,
+            "after": 124.99717553882209,
+            "change_percent": 0.0003802514077611008
+          },
+          "publisher_cpu_percent": {
+            "before": 10.975805783263429,
+            "after": 10.975921508540289,
+            "change_percent": 0.0010543670245777292
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 19.55703397085239,
+            "after": 19.357534296880146,
+            "change_percent": -1.020091667630052
+          },
+          "publisher_rss_bytes": {
+            "before": 4866048.0,
+            "after": 4853760.0,
+            "change_percent": -0.2525252525252486
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 19197952.0,
+            "after": 19185664.0,
+            "change_percent": -0.06400682739492458
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_time_ns": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          }
+        }
+      },
+      {
+        "transport": "shm_loan",
+        "profile": "latency",
+        "message_size_bytes": 65536,
+        "subscriber_count": 4,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 277851.5,
+            "after": 281635.0,
+            "change_percent": 1.3616986051901758
+          },
+          "latency_p99_ns": {
+            "before": 548459.76,
+            "after": 571953.0100000001,
+            "change_percent": 4.283495657001368
+          },
+          "messages_per_second": {
+            "before": 499.9901405944196,
+            "after": 499.9848897566527,
+            "change_percent": -0.001050188261841889
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 31.249383787151224,
+            "after": 31.249055609790794,
+            "change_percent": -0.001050188261841889
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 124.9975351486049,
+            "after": 124.99622243916318,
+            "change_percent": -0.001050188261841889
+          },
+          "publisher_cpu_percent": {
+            "before": 11.174944953182415,
+            "after": 11.375269422629808,
+            "change_percent": 1.7926215322460637
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 19.15702410912634,
+            "after": 19.15834850127126,
+            "change_percent": 0.006913350097459414
+          },
+          "publisher_rss_bytes": {
+            "before": 4853760.0,
+            "after": 4857856.0,
+            "change_percent": 0.08438818565401629
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 19156992.0,
+            "after": 19189760.0,
+            "change_percent": 0.1710498182595721
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_time_ns": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          }
+        }
+      },
+      {
+        "transport": "shm_copy",
+        "profile": "throughput",
+        "message_size_bytes": 65536,
+        "subscriber_count": 4,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 166520.5,
+            "after": 183600.5,
+            "change_percent": 10.256995384952594
+          },
+          "latency_p99_ns": {
+            "before": 303052.59,
+            "after": 820520.9500000001,
+            "change_percent": 170.75200050261904
+          },
+          "messages_per_second": {
+            "before": 4996.987993789785,
+            "after": 11634.873858196932,
+            "change_percent": 132.83773890705075
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 312.31174961186156,
+            "after": 727.1796161373082,
+            "change_percent": 132.83773890705075
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 1249.2469984474462,
+            "after": 2908.718464549233,
+            "change_percent": 132.83773890705075
+          },
+          "publisher_cpu_percent": {
+            "before": 77.43131492028758,
+            "after": 75.43369641382127,
+            "change_percent": -2.579858689630643
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 144.4820880575941,
+            "after": 333.25771888688627,
+            "change_percent": 130.6567709306925
+          },
+          "publisher_rss_bytes": {
+            "before": 5349376.0,
+            "after": 5320704.0,
+            "change_percent": -0.535987748851452
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 20996096.0,
+            "after": 21024768.0,
+            "change_percent": 0.13655872024971316
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 5.0,
+            "after": 21546.0,
+            "change_percent": 430820.0
+          },
+          "blocked_time_ns": {
+            "before": 4666705.0,
+            "after": 1117514213.0,
+            "change_percent": 23846.536432022167
+          }
+        }
+      },
+      {
+        "transport": "shm_loan",
+        "profile": "throughput",
+        "message_size_bytes": 65536,
+        "subscriber_count": 4,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 150321.0,
+            "after": 143643.5,
+            "change_percent": -4.442160443317967
+          },
+          "latency_p99_ns": {
+            "before": 245360.19,
+            "after": 874395.4999999998,
+            "change_percent": 256.37219713597375
+          },
+          "messages_per_second": {
+            "before": 4855.922617959529,
+            "after": 10775.713822306278,
+            "change_percent": 121.9086808025425
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 303.49516362247056,
+            "after": 673.4821138941423,
+            "change_percent": 121.9086808025425
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 1213.9806544898822,
+            "after": 2693.9284555765694,
+            "change_percent": 121.9086808025425
+          },
+          "publisher_cpu_percent": {
+            "before": 77.62478820026818,
+            "after": 82.01711228864798,
+            "change_percent": 5.658403958601221
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 141.29703866113474,
+            "after": 316.08402555699496,
+            "change_percent": 123.70180475971804
+          },
+          "publisher_rss_bytes": {
+            "before": 5332992.0,
+            "after": 5349376.0,
+            "change_percent": 0.3072196620583778
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 21020672.0,
+            "after": 20971520.0,
+            "change_percent": -0.2338269680436489
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 5.0,
+            "after": 14501.0,
+            "change_percent": 289920.0
+          },
+          "blocked_time_ns": {
+            "before": 8618962.0,
+            "after": 745845653.0,
+            "change_percent": 8553.543814208717
+          }
+        }
+      },
+      {
+        "transport": "shm_copy",
+        "profile": "latency",
+        "message_size_bytes": 1048576,
+        "subscriber_count": 1,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 406655.0,
+            "after": 414577.0,
+            "change_percent": 1.9480886746750858
+          },
+          "latency_p99_ns": {
+            "before": 829173.4499999997,
+            "after": 731967.3999999999,
+            "change_percent": -11.723246806805
+          },
+          "messages_per_second": {
+            "before": 49.99777855870041,
+            "after": 49.99861592831415,
+            "change_percent": 0.0016748136374866718
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 49.99777855870041,
+            "after": 49.99861592831415,
+            "change_percent": 0.0016748136374866718
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 49.99777855870041,
+            "after": 49.99861592831415,
+            "change_percent": 0.0016748136374866718
+          },
+          "publisher_cpu_percent": {
+            "before": 2.7939640909728753,
+            "after": 2.7938426992514547,
+            "change_percent": -0.004344784595222695
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 3.392670681895634,
+            "after": 3.1929630848588046,
+            "change_percent": -5.886442150207283
+          },
+          "publisher_rss_bytes": {
+            "before": 6713344.0,
+            "after": 6696960.0,
+            "change_percent": -0.24405125076265577
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 5693440.0,
+            "after": 5693440.0,
+            "change_percent": 0.0
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_time_ns": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          }
+        }
+      },
+      {
+        "transport": "shm_loan",
+        "profile": "latency",
+        "message_size_bytes": 1048576,
+        "subscriber_count": 1,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 284019.5,
+            "after": 278973.0,
+            "change_percent": -1.776814620122913
+          },
+          "latency_p99_ns": {
+            "before": 530105.0299999997,
+            "after": 481921.6699999999,
+            "change_percent": -9.089398755563549
+          },
+          "messages_per_second": {
+            "before": 49.9988912945851,
+            "after": 49.99913669490617,
+            "change_percent": 0.0004908115254442791
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 49.9988912945851,
+            "after": 49.99913669490617,
+            "change_percent": 0.0004908115254442791
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 49.9988912945851,
+            "after": 49.99913669490617,
+            "change_percent": 0.0004908115254442791
+          },
+          "publisher_cpu_percent": {
+            "before": 2.195317317474049,
+            "after": 2.19520152523282,
+            "change_percent": -0.005274510445818503
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 3.392748566526608,
+            "after": 3.193109542306366,
+            "change_percent": -5.884285861614158
+          },
+          "publisher_rss_bytes": {
+            "before": 6733824.0,
+            "after": 6696960.0,
+            "change_percent": -0.5474452554744547
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 5660672.0,
+            "after": 5693440.0,
+            "change_percent": 0.5788712011577379
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_time_ns": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          }
+        }
+      },
+      {
+        "transport": "shm_copy",
+        "profile": "throughput",
+        "message_size_bytes": 1048576,
+        "subscriber_count": 1,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 5357662.5,
+            "after": 5744273.0,
+            "change_percent": 7.216029378483624
+          },
+          "latency_p99_ns": {
+            "before": 6711770.08,
+            "after": 8629047.25,
+            "change_percent": 28.565894646975142
+          },
+          "messages_per_second": {
+            "before": 1458.3597416876587,
+            "after": 1461.7036927287973,
+            "change_percent": 0.22929534774929206
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 1458.3597416876587,
+            "after": 1461.7036927287973,
+            "change_percent": 0.22929534774929206
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 1458.3597416876587,
+            "after": 1461.7036927287973,
+            "change_percent": 0.22929534774929206
+          },
+          "publisher_cpu_percent": {
+            "before": 61.46672704336803,
+            "after": 58.472599899434755,
+            "change_percent": -4.871134820340705
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 99.18827524690963,
+            "after": 99.57354256080995,
+            "change_percent": 0.3884202169472939
+          },
+          "publisher_rss_bytes": {
+            "before": 16134144.0,
+            "after": 16134144.0,
+            "change_percent": 0.0
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 15093760.0,
+            "after": 15093760.0,
+            "change_percent": 0.0
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 6919.0,
+            "after": 7070.0,
+            "change_percent": 2.1823963000433544
+          },
+          "blocked_time_ns": {
+            "before": 1342013502.0,
+            "after": 1798270343.0,
+            "change_percent": 33.99793223540905
+          }
+        }
+      },
+      {
+        "transport": "shm_loan",
+        "profile": "throughput",
+        "message_size_bytes": 1048576,
+        "subscriber_count": 1,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 5420369.0,
+            "after": 5218650.0,
+            "change_percent": -3.7214994034538984
+          },
+          "latency_p99_ns": {
+            "before": 6817018.88,
+            "after": 6775499.49,
+            "change_percent": -0.6090549363419018
+          },
+          "messages_per_second": {
+            "before": 1470.131927599277,
+            "after": 1467.587787614984,
+            "change_percent": -0.17305521610210262
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 1470.131927599277,
+            "after": 1467.587787614984,
+            "change_percent": -0.17305521610210262
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 1470.131927599277,
+            "after": 1467.587787614984,
+            "change_percent": -0.17305521610210262
+          },
+          "publisher_cpu_percent": {
+            "before": 49.89311790517421,
+            "after": 47.69599849370169,
+            "change_percent": -4.403652254501955
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 99.58680313773031,
+            "after": 99.78242362699098,
+            "change_percent": 0.19643214070252935
+          },
+          "publisher_rss_bytes": {
+            "before": 16117760.0,
+            "after": 16142336.0,
+            "change_percent": 0.1524777636594754
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 15060992.0,
+            "after": 15093760.0,
+            "change_percent": 0.21756867011151204
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 7215.0,
+            "after": 7278.0,
+            "change_percent": 0.8731808731808677
+          },
+          "blocked_time_ns": {
+            "before": 1885933049.0,
+            "after": 2337135919.0,
+            "change_percent": 23.92464940572765
+          }
+        }
+      },
+      {
+        "transport": "shm_copy",
+        "profile": "latency",
+        "message_size_bytes": 4194304,
+        "subscriber_count": 1,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 632419.0,
+            "after": 608817.5,
+            "change_percent": -3.7319403749729196
+          },
+          "latency_p99_ns": {
+            "before": 1177340.999999999,
+            "after": 1053038.46,
+            "change_percent": -10.557904634256277
+          },
+          "messages_per_second": {
+            "before": 9.999516335394276,
+            "after": 9.999511065906823,
+            "change_percent": -5.26974233139299e-05
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 39.9980653415771,
+            "after": 39.99804426362729,
+            "change_percent": -5.26974233139299e-05
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 39.9980653415771,
+            "after": 39.99804426362729,
+            "change_percent": -5.26974233139299e-05
+          },
+          "publisher_cpu_percent": {
+            "before": 1.7961031620060162,
+            "after": 1.7961069016527684,
+            "change_percent": 0.0002082089064492365
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 2.5943712340086904,
+            "after": 2.3948092022036915,
+            "change_percent": -7.692115499470975
+          },
+          "publisher_rss_bytes": {
+            "before": 13037568.0,
+            "after": 12984320.0,
+            "change_percent": -0.40841972981463526
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 8839168.0,
+            "after": 8835072.0,
+            "change_percent": -0.04633920296570615
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_time_ns": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          }
+        }
+      },
+      {
+        "transport": "shm_loan",
+        "profile": "latency",
+        "message_size_bytes": 4194304,
+        "subscriber_count": 1,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 277099.5,
+            "after": 273711.5,
+            "change_percent": -1.2226655046292056
+          },
+          "latency_p99_ns": {
+            "before": 419158.6299999998,
+            "after": 365139.5,
+            "change_percent": -12.887514686265622
+          },
+          "messages_per_second": {
+            "before": 9.999439579408884,
+            "after": 9.99977441508897,
+            "change_percent": 0.0033485444601799585
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 39.99775831763554,
+            "after": 39.99909766035588,
+            "change_percent": 0.0033485444601799585
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 39.99775831763554,
+            "after": 39.99909766035588,
+            "change_percent": 0.0033485444601799585
+          },
+          "publisher_cpu_percent": {
+            "before": 1.1974139933712513,
+            "after": 1.1974074765484741,
+            "change_percent": -0.0005442414080070179
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 2.5943969856377116,
+            "after": 2.594382865855027,
+            "change_percent": -0.0005442414080292224
+          },
+          "publisher_rss_bytes": {
+            "before": 12992512.0,
+            "after": 13000704.0,
+            "change_percent": 0.06305170239595537
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 8806400.0,
+            "after": 8839168.0,
+            "change_percent": 0.37209302325580396
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_time_ns": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          }
+        }
+      },
+      {
+        "transport": "shm_copy",
+        "profile": "throughput",
+        "message_size_bytes": 4194304,
+        "subscriber_count": 1,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 14407254.5,
+            "after": 13079847.0,
+            "change_percent": -9.213466035461515
+          },
+          "latency_p99_ns": {
+            "before": 20640113.85,
+            "after": 21467646.09,
+            "change_percent": 4.009339512436849
+          },
+          "messages_per_second": {
+            "before": 381.22586464073663,
+            "after": 384.5321975140862,
+            "change_percent": 0.8672897565503268
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 1524.9034585629465,
+            "after": 1538.1287900563448,
+            "change_percent": 0.8672897565503268
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 1524.9034585629465,
+            "after": 1538.1287900563448,
+            "change_percent": 0.8672897565503268
+          },
+          "publisher_cpu_percent": {
+            "before": 60.671958771833964,
+            "after": 60.27009346688228,
+            "change_percent": -0.6623575587248798
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 100.38276561210307,
+            "after": 99.78492295841437,
+            "change_percent": -0.5955630431610848
+          },
+          "publisher_rss_bytes": {
+            "before": 50753536.0,
+            "after": 50757632.0,
+            "change_percent": 0.00807037365830876
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 46555136.0,
+            "after": 46551040.0,
+            "change_percent": -0.008798169980639425
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 1853.0,
+            "after": 1904.0,
+            "change_percent": 2.752293577981657
+          },
+          "blocked_time_ns": {
+            "before": 1813094322.0,
+            "after": 1837086434.0,
+            "change_percent": 1.3232688288127514
+          }
+        }
+      },
+      {
+        "transport": "shm_loan",
+        "profile": "throughput",
+        "message_size_bytes": 4194304,
+        "subscriber_count": 1,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 13882672.0,
+            "after": 10757310.5,
+            "change_percent": -22.512679835697334
+          },
+          "latency_p99_ns": {
+            "before": 20713335.33,
+            "after": 20584112.35,
+            "change_percent": -0.6238636991157898
+          },
+          "messages_per_second": {
+            "before": 386.03026164468827,
+            "after": 387.3774327078537,
+            "change_percent": 0.3489806880491164
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 1544.121046578753,
+            "after": 1549.5097308314148,
+            "change_percent": 0.3489806880491164
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 1544.121046578753,
+            "after": 1549.5097308314148,
+            "change_percent": 0.3489806880491164
+          },
+          "publisher_cpu_percent": {
+            "before": 45.90256090797081,
+            "after": 46.10117404727022,
+            "change_percent": 0.4326842236484607
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 99.58859953511929,
+            "after": 99.5865188293846,
+            "change_percent": -0.002089301129237775
+          },
+          "publisher_rss_bytes": {
+            "before": 50728960.0,
+            "after": 50749440.0,
+            "change_percent": 0.040371417036744184
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 46510080.0,
+            "after": 46555136.0,
+            "change_percent": 0.09687362395420784
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 1918.0,
+            "after": 1919.0,
+            "change_percent": 0.05213764337852478
+          },
+          "blocked_time_ns": {
+            "before": 2507254724.0,
+            "after": 2503925806.0,
+            "change_percent": -0.13277143196240848
+          }
+        }
+      },
+      {
+        "transport": "shm_copy",
+        "profile": "latency",
+        "message_size_bytes": 4194304,
+        "subscriber_count": 4,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 686235.5,
+            "after": 687737.0,
+            "change_percent": 0.21880243735568072
+          },
+          "latency_p99_ns": {
+            "before": 1141452.22,
+            "after": 1287165.4699999741,
+            "change_percent": 12.765602225555629
+          },
+          "messages_per_second": {
+            "before": 9.999730021289047,
+            "after": 9.999573530188426,
+            "change_percent": -0.0015649532566053281
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 39.998920085156186,
+            "after": 39.998294120753705,
+            "change_percent": -0.0015649532566053281
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 159.99568034062474,
+            "after": 159.99317648301482,
+            "change_percent": -0.0015649532566053281
+          },
+          "publisher_cpu_percent": {
+            "before": 1.995571550143917,
+            "after": 1.799671170562507,
+            "change_percent": -9.816755483775164
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 14.767229471064985,
+            "after": 14.368077792128917,
+            "change_percent": -2.7029557556356054
+          },
+          "publisher_rss_bytes": {
+            "before": 13029376.0,
+            "after": 13029376.0,
+            "change_percent": 0.0
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 35299328.0,
+            "after": 35274752.0,
+            "change_percent": -0.06962172197725325
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_time_ns": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          }
+        }
+      },
+      {
+        "transport": "shm_loan",
+        "profile": "latency",
+        "message_size_bytes": 4194304,
+        "subscriber_count": 4,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 320081.0,
+            "after": 322038.0,
+            "change_percent": 0.6114077374164584
+          },
+          "latency_p99_ns": {
+            "before": 416017.5199999997,
+            "after": 495497.5799999999,
+            "change_percent": 19.104979040305857
+          },
+          "messages_per_second": {
+            "before": 9.999661165481273,
+            "after": 9.99949837116441,
+            "change_percent": -0.001627998330833158
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 39.99864466192509,
+            "after": 39.99799348465764,
+            "change_percent": -0.001627998330833158
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 159.99457864770037,
+            "after": 159.99197393863057,
+            "change_percent": -0.001627998330833158
+          },
+          "publisher_cpu_percent": {
+            "before": 1.1973566878365602,
+            "after": 1.3968907162710245,
+            "change_percent": 16.664543695412238
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 14.96759901571949,
+            "after": 14.766414578571013,
+            "change_percent": -1.344132996462466
+          },
+          "publisher_rss_bytes": {
+            "before": 13066240.0,
+            "after": 13053952.0,
+            "change_percent": -0.09404388714733258
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 35299328.0,
+            "after": 35274752.0,
+            "change_percent": -0.06962172197725325
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_time_ns": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          }
+        }
+      },
+      {
+        "transport": "shm_copy",
+        "profile": "throughput",
+        "message_size_bytes": 4194304,
+        "subscriber_count": 4,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 6881340.5,
+            "after": 6330829.5,
+            "change_percent": -8.00005464051663
+          },
+          "latency_p99_ns": {
+            "before": 33664036.47,
+            "after": 37586812.04,
+            "change_percent": 11.652718988395282
+          },
+          "messages_per_second": {
+            "before": 264.3307980913274,
+            "after": 265.48040994236663,
+            "change_percent": 0.43491407711109265
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 1057.3231923653095,
+            "after": 1061.9216397694665,
+            "change_percent": 0.43491407711109265
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 4229.292769461238,
+            "after": 4247.686559077866,
+            "change_percent": 0.43491407711109265
+          },
+          "publisher_cpu_percent": {
+            "before": 55.67537673782941,
+            "after": 52.884701493032935,
+            "change_percent": -5.012404779832069
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 391.95807452607124,
+            "after": 390.14940158067697,
+            "change_percent": -0.461445512401093
+          },
+          "publisher_rss_bytes": {
+            "before": 50733056.0,
+            "after": 50720768.0,
+            "change_percent": -0.024220894558368844
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 186150912.0,
+            "after": 186138624.0,
+            "change_percent": -0.006601095781899602
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 1282.0,
+            "after": 1323.0,
+            "change_percent": 3.1981279251170003
+          },
+          "blocked_time_ns": {
+            "before": 2124213165.0,
+            "after": 2280845816.0,
+            "change_percent": 7.373678573355424
+          }
+        }
+      },
+      {
+        "transport": "shm_loan",
+        "profile": "throughput",
+        "message_size_bytes": 4194304,
+        "subscriber_count": 4,
+        "repetitions_before": 3,
+        "repetitions_after": 3,
+        "valid_before": true,
+        "valid_after": true,
+        "metrics": {
+          "latency_p50_ns": {
+            "before": 7103040.5,
+            "after": 15900186.0,
+            "change_percent": 123.85042011234484
+          },
+          "latency_p99_ns": {
+            "before": 28809550.529999997,
+            "after": 34074153.62,
+            "change_percent": 18.273811958703966
+          },
+          "messages_per_second": {
+            "before": 267.7945099983094,
+            "after": 268.65320418182085,
+            "change_percent": 0.32065414019011307
+          },
+          "publisher_logical_MB_per_second": {
+            "before": 1071.1780399932377,
+            "after": 1074.6128167272834,
+            "change_percent": 0.32065414019011307
+          },
+          "aggregate_delivered_MB_per_second": {
+            "before": 4284.712159972951,
+            "after": 4298.451266909134,
+            "change_percent": 0.32065414019011307
+          },
+          "publisher_cpu_percent": {
+            "before": 42.10942922053282,
+            "after": 42.70771195715241,
+            "change_percent": 1.4207809217415601
+          },
+          "subscriber_cpu_total_percent": {
+            "before": 391.75739127917507,
+            "after": 390.548442163143,
+            "change_percent": -0.30859637697825404
+          },
+          "publisher_rss_bytes": {
+            "before": 50745344.0,
+            "after": 50769920.0,
+            "change_percent": 0.048430058923232266
+          },
+          "subscriber_rss_total_bytes": {
+            "before": 186167296.0,
+            "after": 186212352.0,
+            "change_percent": 0.024201887747254958
+          },
+          "drop_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "queue_overflow_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "allocation_failure_count": {
+            "before": 0.0,
+            "after": 0.0,
+            "change_percent": null
+          },
+          "blocked_count": {
+            "before": 1377.0,
+            "after": 1391.0,
+            "change_percent": 1.0167029774872827
+          },
+          "blocked_time_ns": {
+            "before": 2816904410.0,
+            "after": 2815977882.0,
+            "change_percent": -0.032891708952242915
+          }
+        }
+      }
+    ]
+  },
+  "full_optimized_matrix": {
+    "git_revision": "971129a4495fcd870efe05b51d2dfe8e0087a0a9",
+    "git_dirty": false,
+    "run_count": 441,
+    "valid_run_count": 441,
+    "main_run_count": 432,
+    "backpressure_run_count": 9,
+    "aggregate_group_count": 147,
+    "valid_aggregate_group_count": 147,
+    "payload_errors": 0,
+    "sequence_errors": 0,
+    "allocation_failures": 0,
+    "custom_main_drop_count": 0,
+    "custom_main_queue_overflow_count": 0,
+    "invalid_reason_count": 0,
+    "minimum_measurement_elapsed_ns": 5000000659
+  },
+  "source_evidence": {
+    "per_message_shm_registry_resolve": "Publisher::connectDiscoveredEndpoints before optimization",
+    "shm_copy_payload_copy": "MemoryPool::writeAndPublish uses one explicit memcpy",
+    "shm_loan_direct_write": "LoanedSample::data exposes the allocated chunk before publishLoaned",
+    "subscriber_direct_view": "SHM benchmark consumes SampleView without an owning payload copy",
+    "mapping_lifetime": "SHM create/open and mmap are in region/pool/queue setup, not publish dispatch"
+  },
+  "optimization": {
+    "decision": "justified",
+    "confidence": "high",
+    "changes": [
+      "Reuse established SHM discovery for up to 1 ms and invalidate immediately on peer failure or no connection.",
+      "Drain redundant queued wake notifications nonblocking on the SHM subscriber path."
+    ]
+  },
+  "limitations": [
+    "perf and strace were not installed; no symbol hotspot or syscall-count data is claimed.",
+    "Procfs boundary counters and 100 ms wchan sampling are low-frequency observations, not stack profiles.",
+    "The host is WSL2 under normal scheduling without affinity, isolation, or frequency control."
+  ]
+}

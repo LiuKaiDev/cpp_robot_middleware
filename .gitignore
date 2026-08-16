@@ -10,6 +10,8 @@ benchmark/results/*
 !benchmark/results/.gitkeep
 !benchmark/results/phase8_reference/
 !benchmark/results/phase8_reference/**
+!benchmark/results/phase8_1_reference/
+!benchmark/results/phase8_1_reference/**
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake

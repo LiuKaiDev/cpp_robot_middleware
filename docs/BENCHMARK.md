@@ -185,12 +185,12 @@ identity with median/min/max values and links to all three run paths.
 Build the custom Release benchmark:
 
 ```bash
-cmake -S . -B build_release \
+cmake -S . -B .work/phase_8/build_release \
   -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTING=OFF \
   -DENABLE_ASAN=OFF \
   -DENABLE_UBSAN=OFF
-cmake --build build_release -j
+cmake --build .work/phase_8/build_release -j
 ```
 
 Build the direct ROS2 benchmark:
@@ -198,10 +198,10 @@ Build the direct ROS2 benchmark:
 ```bash
 source /opt/ros/jazzy/setup.bash
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-colcon --log-base log_ros2_benchmark build \
+colcon --log-base .work/phase_8/ros2/log build \
   --base-paths benchmark/ros2 \
-  --build-base build_ros2_benchmark \
-  --install-base install_ros2_benchmark \
+  --build-base .work/phase_8/ros2/build \
+  --install-base .work/phase_8/ros2/install \
   --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
@@ -243,6 +243,32 @@ python3 benchmark/python/plot_results.py benchmark/results/<run_id>
 Use `--dry-run` to inspect deterministic case expansion and `--no-plots` when only validating
 orchestration. Filters also support one transport, message size, topology, or profile.
 
+## Phase 8.1 Profiling
+
+Phase 8.1 reuses the same Release endpoints, payloads, queue settings, timings, and runner. Its
+representative custom matrix covers 64 B, 4 KiB, 64 KiB, 1 MiB, and 4 MiB 1-to-1 plus 64 KiB and
+4 MiB 1-to-4 where applicable. Direct ROS2 context covers 64 KiB and 4 MiB 1-to-1. Focused SHM
+before/after validation uses three repetitions for both latency and throughput.
+
+On the recorded WSL2 host, neither `perf` nor `strace` was installed. The profiling report does not
+claim symbol hotspots or syscall counts. The bounded fallback observer records measurement-window
+CPU ticks, page faults, voluntary/nonvoluntary context switches, and 100 ms wait-channel samples
+for the exact benchmark child processes. Reproduce it with:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source .work/phase_8_1/ros2_profile/install/setup.bash
+python3 benchmark/profiling/run_phase8_1_profile.py \
+  --output-root .work/phase_8_1/profile \
+  --build-dir .work/phase_8_1/build_profile \
+  --ros-install .work/phase_8_1/ros2_profile/install
+```
+
+Compact profiling evidence is under `benchmark/profiling/`. The original Phase 8 aggregate stays
+under `benchmark/results/phase8_reference/`; the optimized complete-matrix aggregate is separate
+under `benchmark/results/phase8_1_reference/`. See
+`docs/reports/PHASE_8_1_REPORT.md` for attribution, copy-path analysis, limitations, and acceptance.
+
 ## Interpretation And Limitations
 
 Compare latency-profile p50/p99 only at the same configured rate, size, and topology. Compare
@@ -255,6 +281,6 @@ Results describe one WSL/native host session and normal OS scheduling, not hard 
 No CPU isolation, affinity, priority, cache conditioning, or background-load control is applied.
 ROS2 `UInt8MultiArray` serialization and DDS protocol overhead are included outside the equal
 application byte count. ROS QoS and custom backpressure are similar comparison settings, not
-equivalent guarantees. Sampled throughput latency is not a complete tail distribution. Phase 8
-does not attribute causes to syscalls, copies, locks, scheduling, or cache behavior; that requires
-the separate Phase 8.1 profiling task.
+equivalent guarantees. Sampled throughput latency is not a complete tail distribution. The Phase 8
+aggregate alone does not attribute causes to syscalls, copies, locks, scheduling, or cache behavior;
+the separate Phase 8.1 evidence records the available attribution and its limits.

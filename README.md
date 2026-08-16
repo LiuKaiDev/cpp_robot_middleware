@@ -13,12 +13,15 @@ provides a focused environment for studying the IPC, resource-lifetime, backpres
 performance tradeoffs beneath a robotics communication API without implementing a full DDS or
 ROS2 RMW stack.
 
-## Current Status: Phase 8 - Automated Benchmark
+## Current Status: Phase 8.1 - Profiled And Optimized
 
 Phase 8 adds a reproducible cross-process benchmark for custom UDS, SHM copy, SHM loan, and direct
 ROS2 Jazzy with `rmw_fastrtps_cpp`. It covers six exact payload sizes, 1-to-1/2/4 topologies,
 latency and throughput profiles, process CPU/RSS, correctness/loss accounting, repeated
 aggregation, backpressure, and deterministic plots. The middleware core remains ROS2-independent.
+Phase 8.1 profiles representative cases, removes per-message SHM registry resolution by using a
+1 ms bounded discovery refresh, and drains redundant SHM wake notifications without changing the
+bounded queue or backpressure policy.
 
 ## Architecture Direction
 
@@ -92,6 +95,10 @@ core library remains independent of ROS2. The dependency direction is exclusivel
 - Per-run correctness, loss, throughput, latency, CPU, RSS, overflow, allocation, and block metrics
 - Three-repetition median/min/max aggregation and deterministic JSON/CSV/PNG output
 - Focused slow-subscriber comparison of all three SHM backpressure policies
+- Representative Phase 8.1 `/proc` profiling with explicit perf/strace availability records
+- Bounded SHM discovery reuse with immediate refresh after connection or peer failure
+- Nonblocking drain of redundant SHM queue wake notifications
+- Complete optimized 441-run matrix and compact Phase 8.1 reference artifacts
 
 ## Build
 
@@ -193,16 +200,16 @@ passes through the Phase 7 adapter.
 Build both Release benchmark packages, source ROS2, and run smoke or full automation:
 
 ```bash
-cmake -S . -B build_release \
+cmake -S . -B .work/phase_8/build_release \
   -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
-cmake --build build_release -j
+cmake --build .work/phase_8/build_release -j
 
 source /opt/ros/jazzy/setup.bash
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-colcon --log-base log_ros2_benchmark build \
+colcon --log-base .work/phase_8/ros2/log build \
   --base-paths benchmark/ros2 \
-  --build-base build_ros2_benchmark \
-  --install-base install_ros2_benchmark \
+  --build-base .work/phase_8/ros2/build \
+  --install-base .work/phase_8/ros2/install \
   --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 python3 benchmark/python/run_benchmarks.py \
@@ -267,6 +274,11 @@ The complete p50/p90/p99, messages/s, logical/delivered throughput, per-process 
 drop/overflow/allocation/block metrics, min/max repetition ranges, and backpressure analysis are
 in [docs/reports/PHASE_8_REPORT.md](docs/reports/PHASE_8_REPORT.md).
 
+Phase 8.1 profiling evidence is in [benchmark/profiling/](benchmark/profiling/), the optimized
+compact matrix is in [benchmark/results/phase8_1_reference/](benchmark/results/phase8_1_reference/),
+and the interpretation and acceptance record are in
+[docs/reports/PHASE_8_1_REPORT.md](docs/reports/PHASE_8_1_REPORT.md).
+
 ## Install
 
 ```bash
@@ -305,7 +317,7 @@ target_link_libraries(example PRIVATE mw::mw_core)
 - Phase 6: Heartbeat, crash recovery, and resource cleanup.
 - Phase 7: ROS2 adapter (complete).
 - Phase 8: Automated benchmark (complete).
-- Phase 8.1: Profiling and evidence-based optimization.
+- Phase 8.1: Profiling and evidence-based optimization (complete).
 - Phase 9: Final documentation and demos.
 
 ## Known Limitations

@@ -1,0 +1,6 @@
+evidence,availability,scope,finding,limitation
+perf,unavailable,all representative cases,No perf stat or symbol hotspot data collected.,perf executable was not installed; no substitute counters are labeled as perf.
+strace,unavailable,all representative cases,No syscall counts or syscall-time percentages collected.,strace executable was not installed.
+procfs-wchan,available,UDS throughput publishers,sock_alloc_send_pskb was repeatedly sampled during UDS payload sends.,"A wchan sample identifies a sleep location, not syscall counts or total CPU time."
+procfs-wchan,available,large SHM throughput publishers,futex_do_wait samples align with nonzero queue blocked_count and blocked_time_ns.,Sampling supports association with blocking but not exclusive causation.
+source-inspection,available,SHM region lifetime,shm_open/ftruncate/mmap/munmap are confined to shared-region setup and teardown paths.,Dynamic per-message syscall absence could not be reconfirmed without strace.
