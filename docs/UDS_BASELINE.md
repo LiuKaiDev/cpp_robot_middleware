@@ -64,7 +64,8 @@ calls. Consequently, `take()` can return without discarding an incomplete frame,
 - `UnixListener` owns the pathname after a successful bind. Its destructor first closes the
   listening descriptor and then unlinks the pathname.
 - Startup does not blindly unlink an existing pathname. An active or stale pathname causes bind to
-  fail. Crash/stale-path reclamation is deferred to Phase 6.
+  fail. In registry mode, Phase 6 unlinks the exact registered subscriber socket after node death;
+  direct mode has no registry authority and retains the original manual stale-path boundary.
 
 ## Disconnect And Reconnect
 
@@ -79,7 +80,8 @@ untrusted payload allocation occurs before header validation.
 
 ## Thread And Process Model
 
-There are no middleware worker threads. `publish()` sends on the caller's thread.
+Direct mode has no middleware worker threads. A registry-enabled context has the Phase 6
+control-only heartbeat thread. `publish()` sends on the caller's thread.
 `take()`/`waitAndTake()` poll, accept, and receive on the caller's thread. Publisher and subscriber
 are intended to live in separate processes; tests also exercise the same transport in one process.
 
@@ -112,5 +114,7 @@ by the synchronous publisher.
 - No registry, discovery, topic/type negotiation, or multi-publisher ordering.
 - Payloads are copied through the kernel socket path.
 - No subscriber queue, backpressure policy, persistence, retransmission, or worker thread.
-- No shared memory, memory pool, loaned sample, crash recovery, ROS2 adapter, or benchmark framework.
+- The direct Phase 1 path has no shared memory, memory pool, loaned sample, or automatic crash
+  cleanup. Registry-mode lifecycle recovery is documented separately.
+- No ROS2 adapter or benchmark framework.
 - A pathname left by an unclean subscriber exit must be removed by the operator in Phase 1.

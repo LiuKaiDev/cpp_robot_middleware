@@ -2,8 +2,8 @@
 
 ## Scope
 
-Phase 5 retains two independently selectable, Linux-local payload transports and adds copy/loan
-choices within SHM:
+Phase 6 retains the two independently selectable Linux-local payload transports and the Phase 5
+copy/loan choices while adding peer-crash recovery:
 
 - `TransportType::UnixDomainSocket` is the copied Phase 1 baseline.
 - `TransportType::SharedMemory` is the registry-discovered preallocated POSIX SHM pool transport.
@@ -53,8 +53,11 @@ closes/unmaps them in its destructor. Name ownership is separate:
 - The publisher opens each discovered subscriber queue read-write but does not own its SHM name.
 - The publisher region destructor performs best-effort normal `shm_unlink`.
 
-Unlink removes the name but does not invalidate mappings that are already open. Crash-time orphan
-and queue/reference repair after abrupt process death are outside Phase 5 and belong to Phase 6.
+Unlink removes the name but does not invalidate mappings that are already open. On publisher death,
+the registry unlinks the exact advertised pool name and surviving subscribers discard only handles
+for that pool before accepting a replacement publisher. Existing mappings/views remain valid until
+their local owners release them. On subscriber death, the registry robust-closes and unlinks that
+subscriber's exact queue; the live publisher releases its bounded per-endpoint outstanding handles.
 
 ## Naming And Segment Layout
 
@@ -90,6 +93,12 @@ refcount writer and tracks outstanding handles per endpoint. Drop/timeout return
 new reference; `DROP_OLDEST` returns the displaced reference. The last release changes the chunk to
 `RELEASED`; explicit reclaim returns it to its size-class free list as `FREE`.
 
+The publisher retains a bounded outstanding-handle vector for each connection, capped by the
+finite number of configured pool chunks. A valid release erases one matching obligation. Endpoint
+EOF/HUP, a registry dead-subscriber event, discovery reconciliation, or failed dispatch drains each
+remaining obligation exactly once before removing the connection. Generation checks protect a
+reused chunk index from a stale release.
+
 ## Error Handling
 
 Configuration rejects unknown transports, direct SHM mode, invalid/unsorted/empty size classes,
@@ -103,6 +112,11 @@ exhaustion, socket disconnects, and explicit unlink failures have explicit outco
 failure consumes or cancels the loan without leaving a LOANED chunk. If every endpoint rejects a
 published chunk, releasing the publisher guard reclaims it.
 
+`ECONNRESET` and `ENOTCONN` on a data UDS are classified as `ConnectionLost`, allowing publisher
+replacement. A new pool handle that reaches a subscriber queue before the old socket reports HUP
+is left queued; the old mapping is reset and the replacement wake validates and installs the new
+pool before access.
+
 ## Copy Semantics And Limitations
 
 Ordinary `publish()` has one application-buffer-to-SHM copy, and owning `ReceivedMessage` has one
@@ -111,5 +125,6 @@ application filling `LoanedSample` and reading the same logical chunk through `S
 not a claim that UDS, all SHM APIs, or the middleware as a whole is zero-copy. No performance
 conclusion is made in Phase 5.
 
-`eventfd`, `SCM_RIGHTS`, heartbeat, dead-process detection, crash-time queue/refcount repair, ROS2,
-and benchmark results remain unimplemented.
+`eventfd`, `SCM_RIGHTS`, ROS2, and benchmark results remain unimplemented. Recovery is scoped to
+registered resources and process crashes observed through control EOF/HUP or heartbeat timeout; it
+does not claim recovery from arbitrary shared-memory corruption or host failure.

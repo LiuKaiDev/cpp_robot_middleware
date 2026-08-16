@@ -8,9 +8,13 @@
 #include "detail/unique_fd.hpp"
 
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace mw::detail {
@@ -38,6 +42,25 @@ struct RegistryDiscovery {
 struct RegistryNodeInfo {
     std::uint64_t node_id{0};
     std::string node_name;
+    LivenessState liveness{LivenessState::Alive};
+};
+
+struct RegistryRegistration {
+    std::uint64_t node_id{0};
+    std::uint64_t session_id{0};
+};
+
+struct RegistryPeerEvent {
+    PeerEventKind kind{PeerEventKind::PublisherDead};
+    std::uint64_t target_endpoint_id{0};
+    std::uint64_t dead_endpoint_id{0};
+    std::uint64_t topic_id{0};
+    std::uint64_t resource_id{0};
+};
+
+struct HeartbeatResponse {
+    LivenessState state{LivenessState::Alive};
+    std::vector<RegistryPeerEvent> events;
 };
 
 struct RegistryTopicInfo {
@@ -61,8 +84,10 @@ class RegistryClient {
     RegistryClient(RegistryClient&&) noexcept = default;
     RegistryClient& operator=(RegistryClient&&) noexcept = default;
 
-    std::uint64_t registerNode(const std::string& node_name);
+    RegistryRegistration registerNode(const std::string& node_name);
     void unregisterNode(std::uint64_t node_id);
+    void attachHeartbeat(std::uint64_t node_id, std::uint64_t session_id);
+    HeartbeatResponse heartbeat(std::uint64_t node_id, std::uint64_t session_id);
 
     RegistryEndpoint advertise(std::uint64_t node_id, const std::string& topic_name,
                                const std::string& type_name, const std::string& type_hash,
@@ -107,10 +132,22 @@ class RegistrySession {
                                const QueueDescriptor& queue = {});
     void unsubscribe(std::uint64_t endpoint_id) noexcept;
     RegistryDiscovery resolve(std::uint64_t publisher_endpoint_id);
+    std::vector<RegistryPeerEvent> takePeerEvents(std::uint64_t target_endpoint_id);
 
   private:
+    void heartbeatLoop() noexcept;
+
     RegistryClient client_;
+    RegistryConfig config_;
     std::uint64_t node_id_{0};
+    std::uint64_t session_id_{0};
+    std::unique_ptr<RegistryClient> heartbeat_client_;
+    std::thread heartbeat_thread_;
+    std::mutex heartbeat_mutex_;
+    std::condition_variable heartbeat_condition_;
+    bool stop_heartbeat_{false};
+    std::mutex event_mutex_;
+    std::vector<RegistryPeerEvent> peer_events_;
 };
 
 } // namespace mw::detail

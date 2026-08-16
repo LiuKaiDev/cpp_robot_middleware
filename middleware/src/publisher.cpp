@@ -20,6 +20,7 @@
 #include <limits>
 #include <memory>
 #include <poll.h>
+#include <set>
 #include <stdexcept>
 #include <sys/socket.h>
 #include <system_error>
@@ -84,6 +85,17 @@ std::uint64_t nextPoolId() noexcept {
     return (process << 32U) | value;
 }
 
+std::size_t outstandingLimit(const MemoryPoolConfig& config) noexcept {
+    std::size_t total = 0U;
+    for (const MemoryPoolClassConfig& size_class : config.size_classes) {
+        if (size_class.chunk_count > std::numeric_limits<std::size_t>::max() - total) {
+            return std::numeric_limits<std::size_t>::max();
+        }
+        total += size_class.chunk_count;
+    }
+    return total;
+}
+
 struct WakeContext {
     int fd{-1};
     std::array<std::uint8_t, detail::kQueueWakeSize> frame{};
@@ -99,6 +111,12 @@ bool sendWake(void* raw_context) noexcept {
 } // namespace
 
 struct Publisher::Impl : detail::LoanedSampleOwner {
+    enum class ReleaseReceiveStatus {
+        Progress,
+        WouldBlock,
+        Disconnected,
+    };
+
     struct DataConnection {
         std::uint64_t endpoint_id{0};
         detail::UniqueFd socket;
@@ -156,6 +174,7 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
 
     ~Impl() override {
         if (pool) {
+            processPeerEvents();
             waitForOutstandingReleases();
             drainQueuedReferences();
         }
@@ -167,11 +186,15 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
     }
 
     ErrorCode connectDiscoveredEndpoints() noexcept {
-        if (!connections.empty()) {
-            return ErrorCode::Ok;
+        if (!registry_session) {
+            return connections.empty() ? ErrorCode::InvalidState : ErrorCode::Ok;
         }
-        if (!registry_session || endpoint_id == 0U || topic_id == 0U) {
+        processPeerEvents();
+        if (endpoint_id == 0U || topic_id == 0U) {
             return ErrorCode::InvalidState;
+        }
+        if (config.transport == TransportType::UnixDomainSocket && !connections.empty()) {
+            return ErrorCode::Ok;
         }
 
         try {
@@ -189,28 +212,63 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
 
             const std::size_t connection_count =
                 config.transport == TransportType::SharedMemory ? discovery.subscribers.size() : 1U;
+            std::set<std::uint64_t> discovered_ids;
+            for (std::size_t index = 0; index < connection_count; ++index) {
+                discovered_ids.insert(discovery.subscribers[index].endpoint_id);
+            }
+            for (auto iterator = connections.begin(); iterator != connections.end();) {
+                if (discovered_ids.count(iterator->endpoint_id) == 0U) {
+                    releaseAllOutstanding(*iterator);
+                    iterator = connections.erase(iterator);
+                } else {
+                    ++iterator;
+                }
+            }
+            for (auto iterator = failed_endpoint_ids.begin();
+                 iterator != failed_endpoint_ids.end();) {
+                if (discovered_ids.count(*iterator) == 0U) {
+                    iterator = failed_endpoint_ids.erase(iterator);
+                } else {
+                    ++iterator;
+                }
+            }
+
             for (std::size_t index = 0; index < connection_count; ++index) {
                 const detail::RegistrySubscriber& subscriber = discovery.subscribers[index];
+                const auto existing =
+                    std::find_if(connections.begin(), connections.end(),
+                                 [&subscriber](const DataConnection& connection) {
+                                     return connection.endpoint_id == subscriber.endpoint_id;
+                                 });
+                if (existing != connections.end() ||
+                    failed_endpoint_ids.count(subscriber.endpoint_id) != 0U) {
+                    continue;
+                }
                 DataConnection connection;
                 connection.endpoint_id = subscriber.endpoint_id;
-                connection.socket = detail::connectUnixSocket(subscriber.data_socket_path);
-                connection.max_message_size = subscriber.max_message_size;
-                if (config.transport == TransportType::SharedMemory) {
-                    connection.queue = detail::SharedSubscriberQueue::open(subscriber.queue);
+                try {
+                    connection.socket = detail::connectUnixSocket(subscriber.data_socket_path);
+                    connection.max_message_size = subscriber.max_message_size;
+                    connection.outstanding.reserve(outstandingLimit(config.memory_pool));
+                    if (config.transport == TransportType::SharedMemory) {
+                        connection.queue = detail::SharedSubscriberQueue::open(subscriber.queue);
+                    }
+                    connections.push_back(std::move(connection));
+                } catch (...) {
+                    failed_endpoint_ids.insert(subscriber.endpoint_id);
                 }
+            }
+            negotiated_max_message_size = config.max_message_size;
+            for (const DataConnection& connection : connections) {
                 negotiated_max_message_size =
-                    std::min(negotiated_max_message_size, subscriber.max_message_size);
-                connections.push_back(std::move(connection));
+                    std::min(negotiated_max_message_size, connection.max_message_size);
             }
             return connections.empty() ? ErrorCode::ConnectionLost : ErrorCode::Ok;
         } catch (const MiddlewareError& error) {
-            connections.clear();
             return error.code();
         } catch (const std::system_error&) {
-            connections.clear();
             return ErrorCode::ConnectionLost;
         } catch (const std::exception&) {
-            connections.clear();
             return ErrorCode::IoError;
         }
     }
@@ -249,10 +307,46 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
         return result.became_released ? pool->reclaim(handle) : ErrorCode::Ok;
     }
 
+    void releaseAllOutstanding(DataConnection& connection) noexcept {
+        for (const detail::ChunkHandle& handle : connection.outstanding) {
+            (void)releaseReference(handle);
+        }
+        connection.outstanding.clear();
+        connection.release_bytes = 0U;
+    }
+
+    void removeEndpoint(std::uint64_t dead_endpoint_id) noexcept {
+        for (auto iterator = connections.begin(); iterator != connections.end();) {
+            if (iterator->endpoint_id == dead_endpoint_id) {
+                releaseAllOutstanding(*iterator);
+                iterator = connections.erase(iterator);
+            } else {
+                ++iterator;
+            }
+        }
+        failed_endpoint_ids.insert(dead_endpoint_id);
+    }
+
+    void processPeerEvents() noexcept {
+        if (!registry_session || endpoint_id == 0U) {
+            return;
+        }
+        drainReleasesNonBlocking();
+        try {
+            const auto events = registry_session->takePeerEvents(endpoint_id);
+            for (const detail::RegistryPeerEvent& event : events) {
+                if (event.kind == detail::PeerEventKind::SubscriberDead) {
+                    removeEndpoint(event.dead_endpoint_id);
+                }
+            }
+        } catch (...) {
+        }
+    }
+
     void releaseOutstanding(DataConnection& connection,
                             const detail::ChunkHandle& handle) noexcept {
-        const auto item = std::find(connection.outstanding.begin(), connection.outstanding.end(),
-                                    handle);
+        const auto item =
+            std::find(connection.outstanding.begin(), connection.outstanding.end(), handle);
         if (item == connection.outstanding.end()) {
             return;
         }
@@ -260,52 +354,63 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
         connection.outstanding.erase(item);
     }
 
-    bool receiveOneRelease(DataConnection& connection) noexcept {
+    ReleaseReceiveStatus receiveOneRelease(DataConnection& connection) noexcept {
         while (connection.release_bytes < connection.release_buffer.size()) {
-            const ssize_t received = ::recv(
-                connection.socket.get(), connection.release_buffer.data() + connection.release_bytes,
-                connection.release_buffer.size() - connection.release_bytes, MSG_DONTWAIT);
+            const ssize_t received =
+                ::recv(connection.socket.get(),
+                       connection.release_buffer.data() + connection.release_bytes,
+                       connection.release_buffer.size() - connection.release_bytes, MSG_DONTWAIT);
             if (received > 0) {
                 connection.release_bytes += static_cast<std::size_t>(received);
                 continue;
             }
             if (received == 0) {
-                return false;
+                return ReleaseReceiveStatus::Disconnected;
             }
             if (errno == EINTR) {
                 continue;
             }
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                return true;
+                return ReleaseReceiveStatus::WouldBlock;
             }
-            return false;
+            return ReleaseReceiveStatus::Disconnected;
         }
 
         const auto handle = detail::decodeQueueRelease(connection.release_buffer.data(),
                                                        connection.release_buffer.size());
         connection.release_bytes = 0U;
         if (!handle.has_value()) {
-            return false;
+            return ReleaseReceiveStatus::Disconnected;
         }
         releaseOutstanding(connection, *handle);
-        return true;
+        return ReleaseReceiveStatus::Progress;
     }
 
     void drainReleasesNonBlocking() noexcept {
         if (!pool) {
             return;
         }
-        for (DataConnection& connection : connections) {
+        for (auto iterator = connections.begin(); iterator != connections.end();) {
+            bool disconnected = false;
             while (true) {
-                const std::size_t before = connection.release_bytes;
-                const std::size_t outstanding_before = connection.outstanding.size();
-                if (!receiveOneRelease(connection)) {
+                const ReleaseReceiveStatus status = receiveOneRelease(*iterator);
+                if (status == ReleaseReceiveStatus::Disconnected) {
+                    disconnected = true;
                     break;
                 }
-                if (before == connection.release_bytes &&
-                    outstanding_before == connection.outstanding.size()) {
+                if (status == ReleaseReceiveStatus::WouldBlock) {
                     break;
                 }
+            }
+            if (disconnected) {
+                const std::uint64_t dead_endpoint_id = iterator->endpoint_id;
+                releaseAllOutstanding(*iterator);
+                iterator = connections.erase(iterator);
+                if (dead_endpoint_id != 0U) {
+                    failed_endpoint_ids.insert(dead_endpoint_id);
+                }
+            } else {
+                ++iterator;
             }
         }
     }
@@ -333,8 +438,8 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
             }
             int result = 0;
             do {
-                result = ::poll(descriptors.data(), descriptors.size(),
-                                remainingPollTimeout(deadline));
+                result =
+                    ::poll(descriptors.data(), descriptors.size(), remainingPollTimeout(deadline));
             } while (result < 0 && errno == EINTR);
             if (result <= 0) {
                 return;
@@ -367,6 +472,12 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
             if (!connection.queue) {
                 if (first_failure == ErrorCode::Ok) {
                     first_failure = ErrorCode::InvalidState;
+                }
+                continue;
+            }
+            if (connection.outstanding.size() >= outstandingLimit(config.memory_pool)) {
+                if (first_failure == ErrorCode::Ok) {
+                    first_failure = ErrorCode::PoolExhausted;
                 }
                 continue;
             }
@@ -436,17 +547,13 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
 
         (void)releaseReference(handle); // Publisher guard reference.
         sequence = next_sequence;
-        connections.erase(
-            std::remove_if(connections.begin(), connections.end(),
-                           [&failed_endpoints](const DataConnection& connection) {
-                               return std::find(failed_endpoints.begin(), failed_endpoints.end(),
-                                                connection.endpoint_id) != failed_endpoints.end();
-                           }),
-            connections.end());
-        result.error = result.enqueued != 0U
-                           ? ErrorCode::Ok
-                           : (first_failure == ErrorCode::Ok ? ErrorCode::ConnectionLost
-                                                             : first_failure);
+        for (const std::uint64_t failed_endpoint : failed_endpoints) {
+            removeEndpoint(failed_endpoint);
+        }
+        result.error =
+            result.enqueued != 0U
+                ? ErrorCode::Ok
+                : (first_failure == ErrorCode::Ok ? ErrorCode::ConnectionLost : first_failure);
         return result;
     }
 
@@ -473,6 +580,7 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
         if (size > config.max_message_size || size > std::numeric_limits<std::uint32_t>::max()) {
             return {{ErrorCode::MessageTooLarge, {}, 0U}, nullptr};
         }
+        processPeerEvents();
         drainReleasesNonBlocking();
         detail::AllocationResult allocation = pool->allocate(size);
         if (allocation.error != ErrorCode::Ok) {
@@ -508,8 +616,8 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
         }
 
         const std::uint64_t next_sequence = sequence + 1U;
-        const ErrorCode publish_error = pool->publishLoaned(
-            handle, payload_size, next_sequence, monotonicTimestampNs(), 1U);
+        const ErrorCode publish_error =
+            pool->publishLoaned(handle, payload_size, next_sequence, monotonicTimestampNs(), 1U);
         if (publish_error != ErrorCode::Ok) {
             (void)pool->cancel(handle);
             return {publish_error, next_sequence, 0U};
@@ -530,6 +638,7 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
     std::uint64_t endpoint_id{0};
     std::size_t negotiated_max_message_size{0};
     std::uint64_t sequence{0};
+    std::set<std::uint64_t> failed_endpoint_ids;
 };
 
 Publisher::Publisher(std::string topic, const PublisherConfig& config) {
@@ -585,9 +694,13 @@ LoanedSample Publisher::loan(std::size_t size) {
     if (loan.allocation.error != ErrorCode::Ok) {
         return LoanedSample{loan.allocation.error};
     }
-    return LoanedSample{std::static_pointer_cast<detail::LoanedSampleOwner>(impl_), loan.payload,
-                        size, loan.allocation.capacity, loan.allocation.handle.pool_id,
-                        loan.allocation.handle.chunk_index, loan.allocation.handle.generation,
+    return LoanedSample{std::static_pointer_cast<detail::LoanedSampleOwner>(impl_),
+                        loan.payload,
+                        size,
+                        loan.allocation.capacity,
+                        loan.allocation.handle.pool_id,
+                        loan.allocation.handle.chunk_index,
+                        loan.allocation.handle.generation,
                         loan.allocation.handle.payload_offset};
 }
 
@@ -620,37 +733,68 @@ const char* overflowPolicyName(OverflowPolicy policy) noexcept {
 
 const char* errorMessage(ErrorCode error) noexcept {
     switch (error) {
-    case ErrorCode::Ok: return "ok";
-    case ErrorCode::InvalidArgument: return "invalid argument";
-    case ErrorCode::InvalidState: return "invalid state";
-    case ErrorCode::MessageTooLarge: return "message too large";
-    case ErrorCode::ConnectionLost: return "connection lost";
-    case ErrorCode::IoError: return "I/O error";
-    case ErrorCode::Timeout: return "timeout";
-    case ErrorCode::InvalidFrame: return "invalid frame";
-    case ErrorCode::RegistryUnavailable: return "registry unavailable";
-    case ErrorCode::DuplicateNode: return "duplicate node";
-    case ErrorCode::DuplicatePublisher: return "duplicate publisher";
-    case ErrorCode::TypeMismatch: return "type mismatch";
-    case ErrorCode::TopicNotFound: return "topic not found";
-    case ErrorCode::InvalidControlMessage: return "invalid control message";
-    case ErrorCode::UnsupportedProtocolVersion: return "unsupported protocol version";
-    case ErrorCode::UnknownOpcode: return "unknown opcode";
-    case ErrorCode::InvalidRequestId: return "invalid request ID";
-    case ErrorCode::NotRegistered: return "not registered";
-    case ErrorCode::EndpointNotFound: return "endpoint not found";
-    case ErrorCode::TransportMismatch: return "transport mismatch";
-    case ErrorCode::SharedMemoryError: return "shared memory error";
-    case ErrorCode::SharedMemoryNotFound: return "shared memory object not found";
-    case ErrorCode::InvalidSharedMemory: return "invalid shared memory object";
-    case ErrorCode::CleanupFailed: return "resource cleanup failed";
-    case ErrorCode::PoolExhausted: return "memory pool exhausted";
-    case ErrorCode::InvalidChunkHandle: return "invalid chunk handle";
-    case ErrorCode::DuplicateRelease: return "duplicate chunk release";
-    case ErrorCode::QueueFull: return "subscriber queue full";
-    case ErrorCode::QueueTimeout: return "subscriber queue wait timed out";
-    case ErrorCode::QueueClosed: return "subscriber queue closed";
-    case ErrorCode::UnsupportedTransport: return "operation is unsupported by this transport";
+    case ErrorCode::Ok:
+        return "ok";
+    case ErrorCode::InvalidArgument:
+        return "invalid argument";
+    case ErrorCode::InvalidState:
+        return "invalid state";
+    case ErrorCode::MessageTooLarge:
+        return "message too large";
+    case ErrorCode::ConnectionLost:
+        return "connection lost";
+    case ErrorCode::IoError:
+        return "I/O error";
+    case ErrorCode::Timeout:
+        return "timeout";
+    case ErrorCode::InvalidFrame:
+        return "invalid frame";
+    case ErrorCode::RegistryUnavailable:
+        return "registry unavailable";
+    case ErrorCode::DuplicateNode:
+        return "duplicate node";
+    case ErrorCode::DuplicatePublisher:
+        return "duplicate publisher";
+    case ErrorCode::TypeMismatch:
+        return "type mismatch";
+    case ErrorCode::TopicNotFound:
+        return "topic not found";
+    case ErrorCode::InvalidControlMessage:
+        return "invalid control message";
+    case ErrorCode::UnsupportedProtocolVersion:
+        return "unsupported protocol version";
+    case ErrorCode::UnknownOpcode:
+        return "unknown opcode";
+    case ErrorCode::InvalidRequestId:
+        return "invalid request ID";
+    case ErrorCode::NotRegistered:
+        return "not registered";
+    case ErrorCode::EndpointNotFound:
+        return "endpoint not found";
+    case ErrorCode::TransportMismatch:
+        return "transport mismatch";
+    case ErrorCode::SharedMemoryError:
+        return "shared memory error";
+    case ErrorCode::SharedMemoryNotFound:
+        return "shared memory object not found";
+    case ErrorCode::InvalidSharedMemory:
+        return "invalid shared memory object";
+    case ErrorCode::CleanupFailed:
+        return "resource cleanup failed";
+    case ErrorCode::PoolExhausted:
+        return "memory pool exhausted";
+    case ErrorCode::InvalidChunkHandle:
+        return "invalid chunk handle";
+    case ErrorCode::DuplicateRelease:
+        return "duplicate chunk release";
+    case ErrorCode::QueueFull:
+        return "subscriber queue full";
+    case ErrorCode::QueueTimeout:
+        return "subscriber queue wait timed out";
+    case ErrorCode::QueueClosed:
+        return "subscriber queue closed";
+    case ErrorCode::UnsupportedTransport:
+        return "operation is unsupported by this transport";
     }
     return "unknown error";
 }

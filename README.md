@@ -13,18 +13,18 @@ provides a focused environment for studying the IPC, resource-lifetime, backpres
 performance tradeoffs beneath a robotics communication API without implementing a full DDS or
 ROS2 RMW stack.
 
-## Current Status: Phase 5 - Ring Buffer / Backpressure / Loaned Sample
+## Current Status: Phase 6 - Robustness / Lifecycle
 
-Phase 5 adds one bounded shared-memory ring queue per subscriber, per-endpoint drop/block policies,
-publisher payload loans, and read-only subscriber views. The verified loaned SHM path lets an
-application fill a pool chunk directly and lets subscribers read that same logical chunk without a
-middleware payload copy between those points. The ordinary SHM copy path and copied Phase 1 UDS
-transport remain independent supported paths.
+Phase 6 adds registry heartbeats, ALIVE/SUSPECTED/DEAD liveness, session identity, immediate
+control-connection failure cleanup, bounded outstanding-reference recovery, robust process-shared
+queue repair, and reconnect handling after publisher or subscriber crashes. The Phase 5 loan/view
+and bounded queue behavior remains supported. The verified scope is Linux single-host operation;
+it is not a distributed fault-tolerant or arbitrary-kernel-failure guarantee.
 
 ## Architecture Direction
 
 The architecture separates the `mw_registryd` UDS control plane from publisher-to-subscriber data
-transfer. Registry protocol v4 distributes pool metadata plus each subscriber's queue descriptor
+transfer. Registry protocol v5 distributes pool metadata plus each subscriber's queue descriptor
 without owning payload memory or queue storage. Direct mode retains the Phase 1 UDS baseline. The
 core library remains independent of ROS2.
 
@@ -67,6 +67,13 @@ core library remains independent of ROS2.
 - Partial read/write and `EINTR` handling
 - Timeout, invalid-frame, disconnect, and subscriber reconnect behavior
 - Unit, in-process integration, and cross-process integration tests
+- Registry heartbeat thread with configurable monotonic interval/suspect/dead timeouts
+- ALIVE, SUSPECTED, and terminal DEAD node state with unique session identity
+- Immediate primary control EOF/HUP cleanup plus heartbeat timeout detection for open sockets
+- Exact dead publisher pool and dead subscriber queue/socket cleanup through the registry
+- Bounded per-endpoint outstanding handle tracking and exactly-once release repair
+- Robust process-shared queue mutex owner-death recovery and blocked-producer wakeup
+- Publisher and subscriber reconnect after peer `SIGKILL`, including replacement endpoints
 
 ## Build
 
@@ -122,7 +129,8 @@ Inspect the live registry with:
 ```
 
 Use `--transport uds` for the registry-discovered copied-payload baseline; omit `--registry` for
-direct UDS mode. See [docs/DATA_PLANE.md](docs/DATA_PLANE.md) for both payload paths,
+direct UDS mode. See [docs/FAILURE_MODEL.md](docs/FAILURE_MODEL.md) for liveness, crash, and cleanup
+behavior, [docs/DATA_PLANE.md](docs/DATA_PLANE.md) for both payload paths,
 [docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md) for discovery,
 [docs/MEMORY_POOL.md](docs/MEMORY_POOL.md) for the pool layout, and
 [docs/QUEUES_AND_LOANING.md](docs/QUEUES_AND_LOANING.md) for Phase 5 queue and RAII lifecycles.
@@ -171,12 +179,15 @@ target_link_libraries(example PRIVATE mw::mw_core)
 
 - Registry-discovered SHM supports N subscribers; the copied UDS baseline remains one-to-one.
 - UDS notifications remain in use; `eventfd` and `SCM_RIGHTS` optimizations are deferred.
-- No heartbeat, dead-process detection, SIGKILL recovery, crash-time queue/refcount repair, ROS2
-  adapter, benchmark framework, or full metrics system exists.
+- The heartbeat lease covers process liveness while the registry daemon is running; it does not
+  cover distributed hosts, kernel failure, power loss, or arbitrary memory corruption.
+- No ROS2 adapter, benchmark framework, or final metrics/visualization system exists.
+- Phase 7 was not implemented.
 - Registry requests are synchronous and are not multiplexed across application threads.
 - The UDS path copies payload data through kernel socket buffers and is not zero-copy.
 - Ordinary SHM `publish()` copies into the pool, and owning `ReceivedMessage` copies from a
   `SampleView`; only the explicitly verified loan-to-view path avoids middleware payload copies.
-- Clean completion unlinks publisher pools and subscriber queues. Orphan, queue, and reference
-  repair after `SIGKILL` are deferred to Phase 6.
-- An unclean subscriber exit can leave a stale socket pathname that must be removed manually.
+- Recovery is limited to registry-known names and endpoint state; the daemon does not scan arbitrary
+  `/dev/shm` or `/tmp` entries.
+- A failed heartbeat control connection is not reconnected inside an existing `Context`; creating a
+  new context creates a new session.

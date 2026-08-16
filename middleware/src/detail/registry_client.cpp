@@ -83,14 +83,15 @@ std::size_t checkedSize(std::uint64_t value) {
     return static_cast<std::size_t>(value);
 }
 
-std::uint64_t readSingleId(const std::vector<std::uint8_t>& body) {
+RegistryRegistration readRegistration(const std::vector<std::uint8_t>& body) {
     PayloadReader reader{body};
-    std::uint64_t id = 0;
-    if (!reader.readU64(id) || !reader.empty()) {
+    RegistryRegistration registration;
+    if (!reader.readU64(registration.node_id) || !reader.readU64(registration.session_id) ||
+        registration.node_id == 0U || registration.session_id == 0U || !reader.empty()) {
         throw MiddlewareError(ErrorCode::InvalidControlMessage,
-                              "registry response has an invalid ID payload");
+                              "registry response has an invalid registration payload");
     }
-    return id;
+    return registration;
 }
 
 RegistryEndpoint readEndpoint(const std::vector<std::uint8_t>& body) {
@@ -118,6 +119,9 @@ RegistryClient::RegistryClient(const RegistryConfig& config)
         throw MiddlewareError(ErrorCode::InvalidArgument,
                               "registry request timeout must be positive");
     }
+    if (!validLivenessConfig(config.liveness)) {
+        throw MiddlewareError(ErrorCode::InvalidArgument, "registry liveness timing is invalid");
+    }
     try {
         socket_ = connectUnixSocket(config.socket_path);
     } catch (const std::system_error& error) {
@@ -125,16 +129,66 @@ RegistryClient::RegistryClient(const RegistryConfig& config)
     }
 }
 
-std::uint64_t RegistryClient::registerNode(const std::string& node_name) {
+RegistryRegistration RegistryClient::registerNode(const std::string& node_name) {
     PayloadWriter writer;
     writer.writeString(node_name);
-    return readSingleId(request(Opcode::RegisterNode, writer.data(), request_timeout_));
+    return readRegistration(request(Opcode::RegisterNode, writer.data(), request_timeout_));
 }
 
 void RegistryClient::unregisterNode(std::uint64_t node_id) {
     PayloadWriter writer;
     writer.writeU64(node_id);
     (void)request(Opcode::UnregisterNode, writer.data(), request_timeout_);
+}
+
+void RegistryClient::attachHeartbeat(std::uint64_t node_id, std::uint64_t session_id) {
+    PayloadWriter writer;
+    writer.writeU64(node_id);
+    writer.writeU64(session_id);
+    (void)request(Opcode::AttachHeartbeat, writer.data(), request_timeout_);
+}
+
+HeartbeatResponse RegistryClient::heartbeat(std::uint64_t node_id, std::uint64_t session_id) {
+    PayloadWriter writer;
+    writer.writeU64(node_id);
+    writer.writeU64(session_id);
+    const auto body = request(Opcode::Heartbeat, writer.data(), request_timeout_);
+    PayloadReader reader{body};
+    HeartbeatResponse response;
+    std::uint16_t state = 0;
+    std::uint32_t count = 0;
+    if (!reader.readU16(state) || !reader.readU32(count)) {
+        throw MiddlewareError(ErrorCode::InvalidControlMessage,
+                              "registry heartbeat response is malformed");
+    }
+    response.state = static_cast<LivenessState>(state);
+    if (response.state != LivenessState::Alive && response.state != LivenessState::Suspected) {
+        throw MiddlewareError(ErrorCode::InvalidControlMessage,
+                              "registry heartbeat response has invalid state");
+    }
+    response.events.reserve(count);
+    for (std::uint32_t index = 0; index < count; ++index) {
+        RegistryPeerEvent event;
+        std::uint16_t kind = 0;
+        if (!reader.readU16(kind) || !reader.readU64(event.target_endpoint_id) ||
+            !reader.readU64(event.dead_endpoint_id) || !reader.readU64(event.topic_id) ||
+            !reader.readU64(event.resource_id)) {
+            throw MiddlewareError(ErrorCode::InvalidControlMessage,
+                                  "registry heartbeat event is malformed");
+        }
+        event.kind = static_cast<PeerEventKind>(kind);
+        if (event.kind != PeerEventKind::PublisherDead &&
+            event.kind != PeerEventKind::SubscriberDead) {
+            throw MiddlewareError(ErrorCode::InvalidControlMessage,
+                                  "registry heartbeat event kind is invalid");
+        }
+        response.events.push_back(event);
+    }
+    if (!reader.empty()) {
+        throw MiddlewareError(ErrorCode::InvalidControlMessage,
+                              "registry heartbeat response has trailing data");
+    }
+    return response;
 }
 
 RegistryEndpoint RegistryClient::advertise(std::uint64_t node_id, const std::string& topic_name,
@@ -168,8 +222,7 @@ RegistryEndpoint RegistryClient::subscribe(std::uint64_t node_id, const std::str
                                            const std::string& type_hash,
                                            std::size_t max_message_size,
                                            const std::string& data_socket_path,
-                                           TransportType transport,
-                                           const QueueDescriptor& queue) {
+                                           TransportType transport, const QueueDescriptor& queue) {
     PayloadWriter writer;
     writer.writeU64(node_id);
     writer.writeString(topic_name);
@@ -257,8 +310,14 @@ std::vector<RegistryNodeInfo> RegistryClient::listNodes() {
     nodes.reserve(count);
     for (std::uint32_t index = 0; index < count; ++index) {
         RegistryNodeInfo node;
-        if (!reader.readU64(node.node_id) || !reader.readString(node.node_name)) {
+        std::uint16_t liveness = 0;
+        if (!reader.readU64(node.node_id) || !reader.readString(node.node_name) ||
+            !reader.readU16(liveness)) {
             throw MiddlewareError(ErrorCode::InvalidControlMessage, "invalid node list entry");
+        }
+        node.liveness = static_cast<LivenessState>(liveness);
+        if (node.liveness != LivenessState::Alive && node.liveness != LivenessState::Suspected) {
+            throw MiddlewareError(ErrorCode::InvalidControlMessage, "invalid node liveness state");
         }
         nodes.push_back(std::move(node));
     }
@@ -381,9 +440,35 @@ ControlFrame RegistryClient::receiveFrame(std::chrono::milliseconds timeout) {
 }
 
 RegistrySession::RegistrySession(std::string node_name, const RegistryConfig& config)
-    : client_(config), node_id_(client_.registerNode(node_name)) {}
+    : client_(config), config_(config) {
+    const RegistryRegistration registration = client_.registerNode(node_name);
+    node_id_ = registration.node_id;
+    session_id_ = registration.session_id;
+    try {
+        heartbeat_client_ = std::make_unique<RegistryClient>(config_);
+        heartbeat_client_->attachHeartbeat(node_id_, session_id_);
+        heartbeat_thread_ = std::thread([this] { heartbeatLoop(); });
+    } catch (...) {
+        try {
+            client_.unregisterNode(node_id_);
+        } catch (...) {
+        }
+        node_id_ = 0U;
+        session_id_ = 0U;
+        throw;
+    }
+}
 
 RegistrySession::~RegistrySession() {
+    {
+        std::lock_guard<std::mutex> lock{heartbeat_mutex_};
+        stop_heartbeat_ = true;
+    }
+    heartbeat_condition_.notify_all();
+    if (heartbeat_thread_.joinable()) {
+        heartbeat_thread_.join();
+    }
+    heartbeat_client_.reset();
     if (node_id_ != 0U) {
         try {
             client_.unregisterNode(node_id_);
@@ -422,6 +507,56 @@ void RegistrySession::unsubscribe(std::uint64_t endpoint_id) noexcept {
 
 RegistryDiscovery RegistrySession::resolve(std::uint64_t publisher_endpoint_id) {
     return client_.resolve(node_id_, publisher_endpoint_id);
+}
+
+std::vector<RegistryPeerEvent> RegistrySession::takePeerEvents(std::uint64_t target_endpoint_id) {
+    std::lock_guard<std::mutex> lock{event_mutex_};
+    std::vector<RegistryPeerEvent> selected;
+    for (auto iterator = peer_events_.begin(); iterator != peer_events_.end();) {
+        if (iterator->target_endpoint_id == target_endpoint_id) {
+            selected.push_back(*iterator);
+            iterator = peer_events_.erase(iterator);
+        } else {
+            ++iterator;
+        }
+    }
+    return selected;
+}
+
+void RegistrySession::heartbeatLoop() noexcept {
+    constexpr std::size_t kMaxPendingPeerEvents = 4096U;
+    std::unique_lock<std::mutex> lock{heartbeat_mutex_};
+    while (!stop_heartbeat_) {
+        if (heartbeat_condition_.wait_for(lock, config_.liveness.heartbeat_interval,
+                                          [this] { return stop_heartbeat_; })) {
+            break;
+        }
+        lock.unlock();
+        try {
+            HeartbeatResponse response = heartbeat_client_->heartbeat(node_id_, session_id_);
+            if (!response.events.empty()) {
+                std::lock_guard<std::mutex> event_lock{event_mutex_};
+                for (const RegistryPeerEvent& event : response.events) {
+                    const auto duplicate = std::find_if(
+                        peer_events_.begin(), peer_events_.end(),
+                        [&event](const RegistryPeerEvent& existing) {
+                            return existing.kind == event.kind &&
+                                   existing.target_endpoint_id == event.target_endpoint_id &&
+                                   existing.dead_endpoint_id == event.dead_endpoint_id;
+                        });
+                    if (duplicate == peer_events_.end()) {
+                        if (peer_events_.size() == kMaxPendingPeerEvents) {
+                            peer_events_.erase(peer_events_.begin());
+                        }
+                        peer_events_.push_back(event);
+                    }
+                }
+            }
+        } catch (...) {
+            return;
+        }
+        lock.lock();
+    }
 }
 
 } // namespace mw::detail

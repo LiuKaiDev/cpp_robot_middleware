@@ -125,11 +125,16 @@ TEST(RegistryStateTest, RejectsTransportMismatchAndReportsTransportInDiscovery) 
               ErrorCode::TransportMismatch);
 
     const mw::registry::SharedQueueMetadata queue{
-        "/mw_q5_registry_state", 18U, 4096U, 8U, 1U,
-        static_cast<std::uint16_t>(mw::OverflowPolicy::DropOldest), 100U};
-    const auto subscriber = state.subscribe(2U, subscriber_node.id, "/transport", "T", "H", 4096U,
-                                            "/tmp/transport.sock", mw::TransportType::SharedMemory,
-                                            queue);
+        "/mw_q5_registry_state",
+        18U,
+        4096U,
+        8U,
+        2U,
+        static_cast<std::uint16_t>(mw::OverflowPolicy::DropOldest),
+        100U};
+    const auto subscriber =
+        state.subscribe(2U, subscriber_node.id, "/transport", "T", "H", 4096U,
+                        "/tmp/transport.sock", mw::TransportType::SharedMemory, queue);
     ASSERT_EQ(subscriber.error, ErrorCode::Ok);
     const auto discovery = state.resolve(1U, publisher_node.id, publisher.endpoint_id);
     EXPECT_EQ(discovery.error, ErrorCode::Ok);

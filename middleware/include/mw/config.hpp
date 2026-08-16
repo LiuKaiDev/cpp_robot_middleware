@@ -26,6 +26,36 @@ enum class OverflowPolicy : std::uint16_t {
 
 const char* overflowPolicyName(OverflowPolicy policy) noexcept;
 
+enum class LivenessState : std::uint16_t {
+    Alive = 1,
+    Suspected = 2,
+    Dead = 3,
+};
+
+inline const char* livenessStateName(LivenessState state) noexcept {
+    switch (state) {
+    case LivenessState::Alive:
+        return "ALIVE";
+    case LivenessState::Suspected:
+        return "SUSPECTED";
+    case LivenessState::Dead:
+        return "DEAD";
+    }
+    return "UNKNOWN";
+}
+
+struct LivenessConfig {
+    std::chrono::milliseconds heartbeat_interval{250};
+    std::chrono::milliseconds suspect_timeout{750};
+    std::chrono::milliseconds dead_timeout{1500};
+};
+
+inline bool validLivenessConfig(const LivenessConfig& config) noexcept {
+    return config.heartbeat_interval.count() > 0 &&
+           config.heartbeat_interval < config.suspect_timeout &&
+           config.suspect_timeout < config.dead_timeout;
+}
+
 struct MemoryPoolClassConfig {
     std::size_t chunk_size{0};
     std::uint32_t chunk_count{0};
@@ -72,8 +102,17 @@ struct SubscriberConfig {
 };
 
 struct RegistryConfig {
+    RegistryConfig() = default;
+    explicit RegistryConfig(
+        std::string socket_path_value,
+        std::chrono::milliseconds request_timeout_value = std::chrono::milliseconds{2000},
+        LivenessConfig liveness_value = {})
+        : socket_path(std::move(socket_path_value)), request_timeout(request_timeout_value),
+          liveness(liveness_value) {}
+
     std::string socket_path{"/tmp/mw_registry.sock"};
     std::chrono::milliseconds request_timeout{2000};
+    LivenessConfig liveness;
 };
 
 } // namespace mw

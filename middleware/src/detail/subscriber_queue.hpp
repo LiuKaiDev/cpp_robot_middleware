@@ -23,6 +23,8 @@ struct QueueStats {
     std::uint64_t dropped_newest{0};
     std::uint64_t dropped_oldest{0};
     std::uint64_t block_timeouts{0};
+    std::uint64_t owner_death_recoveries{0};
+    std::uint64_t peer_resets{0};
     std::uint32_t current_size{0};
     std::uint32_t max_size{0};
 };
@@ -49,6 +51,8 @@ struct alignas(64) SubscriberQueueHeader {
     std::uint64_t dropped_newest{0};
     std::uint64_t dropped_oldest{0};
     std::uint64_t block_timeouts{0};
+    std::uint64_t owner_death_recoveries{0};
+    std::uint64_t peer_resets{0};
     pthread_mutex_t mutex{};
     pthread_cond_t not_full{};
 };
@@ -87,7 +91,11 @@ class SharedSubscriberQueue {
     std::optional<ChunkHandle> peek() noexcept;
     std::vector<ChunkHandle> drain();
     std::vector<ChunkHandle> closeAndDrain();
+    void discardPool(std::uint64_t pool_id) noexcept;
     QueueStats stats() noexcept;
+
+    static ErrorCode recoverAndClose(const QueueDescriptor& descriptor) noexcept;
+    bool abandonMutexForTesting(bool corrupt_invariants) noexcept;
 
     const QueueDescriptor& descriptor() const noexcept { return descriptor_; }
 

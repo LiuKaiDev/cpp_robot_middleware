@@ -38,6 +38,13 @@ bool isValidSharedMemoryName(const std::string& name) noexcept {
            name.find('/', 1U) == std::string::npos && name.find('\0') == std::string::npos;
 }
 
+bool unlinkSharedMemoryName(const std::string& name) noexcept {
+    if (!isValidSharedMemoryName(name)) {
+        return false;
+    }
+    return ::shm_unlink(name.c_str()) == 0 || errno == ENOENT;
+}
+
 SharedMemoryRegion SharedMemoryRegion::create(const std::string& name, std::size_t size) {
     validateArguments(name, size);
     UniqueFd fd = openObject(name, O_CREAT | O_EXCL | O_RDWR, 0600);
@@ -126,7 +133,7 @@ bool SharedMemoryRegion::unlinkName() noexcept {
     if (!owns_name_) {
         return true;
     }
-    if (::shm_unlink(name_.c_str()) != 0 && errno != ENOENT) {
+    if (!unlinkSharedMemoryName(name_)) {
         return false;
     }
     owns_name_ = false;

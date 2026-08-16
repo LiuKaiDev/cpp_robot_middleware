@@ -12,7 +12,7 @@
 namespace mw::detail {
 
 inline constexpr std::uint32_t kControlMagic = 0x4D574332U;
-inline constexpr std::uint16_t kControlVersion = 4U;
+inline constexpr std::uint16_t kControlVersion = 5U;
 inline constexpr std::size_t kControlHeaderSize = 16U;
 inline constexpr std::size_t kMaxControlPayloadSize = 64U * 1024U;
 
@@ -27,7 +27,14 @@ enum class Opcode : std::uint16_t {
     ListNodes = 8,
     ListTopics = 9,
     QueryTopic = 10,
+    AttachHeartbeat = 11,
+    Heartbeat = 12,
     Response = 100,
+};
+
+enum class PeerEventKind : std::uint16_t {
+    PublisherDead = 1,
+    SubscriberDead = 2,
 };
 
 struct ControlHeader {

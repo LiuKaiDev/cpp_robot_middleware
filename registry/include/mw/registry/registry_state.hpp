@@ -3,6 +3,7 @@
 #include <mw/config.hpp>
 #include <mw/result.hpp>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -14,11 +15,17 @@
 namespace mw::registry {
 
 using ConnectionId = std::uint64_t;
+using MonotonicClock = std::chrono::steady_clock;
+using MonotonicTime = MonotonicClock::time_point;
 
 struct NodeRecord {
     std::uint64_t node_id{0};
+    std::uint64_t session_id{0};
     std::string node_name;
     ConnectionId control_connection{0};
+    ConnectionId heartbeat_connection{0};
+    LivenessState liveness{LivenessState::Alive};
+    MonotonicTime last_seen{};
     std::set<std::uint64_t> publisher_endpoints;
     std::set<std::uint64_t> subscriber_endpoints;
 };
@@ -87,6 +94,48 @@ struct SubscriberEndpoint {
 struct IdResult {
     ErrorCode error{ErrorCode::Ok};
     std::uint64_t id{0};
+    std::uint64_t session_id{0};
+};
+
+struct HeartbeatResult {
+    ErrorCode error{ErrorCode::Ok};
+    LivenessState state{LivenessState::Alive};
+};
+
+enum class PeerEventKind : std::uint16_t {
+    PublisherDead = 1,
+    SubscriberDead = 2,
+};
+
+struct PeerEventRecord {
+    PeerEventKind kind{PeerEventKind::PublisherDead};
+    std::uint64_t target_node_id{0};
+    std::uint64_t target_endpoint_id{0};
+    std::uint64_t dead_endpoint_id{0};
+    std::uint64_t topic_id{0};
+    std::uint64_t resource_id{0};
+};
+
+struct DeadNodeCleanup {
+    std::uint64_t node_id{0};
+    std::uint64_t session_id{0};
+    ConnectionId control_connection{0};
+    ConnectionId heartbeat_connection{0};
+    std::vector<SharedPoolMetadata> pools;
+    std::vector<SharedQueueMetadata> queues;
+    std::vector<std::string> socket_paths;
+    std::vector<PeerEventRecord> peer_events;
+};
+
+struct LivenessUpdate {
+    std::vector<std::uint64_t> suspected_nodes;
+    std::vector<DeadNodeCleanup> dead_nodes;
+};
+
+struct RegistryMetrics {
+    std::uint64_t heartbeat_received{0};
+    std::uint64_t suspected_count{0};
+    std::uint64_t dead_node_count{0};
 };
 
 struct EndpointResult {
@@ -113,8 +162,18 @@ struct DiscoveryResult {
 
 class RegistryState {
   public:
-    IdResult registerNode(ConnectionId connection, const std::string& node_name);
+    explicit RegistryState(LivenessConfig liveness = {});
+
+    IdResult registerNode(ConnectionId connection, const std::string& node_name,
+                          MonotonicTime now = MonotonicClock::now());
     ErrorCode unregisterNode(ConnectionId connection, std::uint64_t node_id);
+    ErrorCode attachHeartbeat(ConnectionId connection, std::uint64_t node_id,
+                              std::uint64_t session_id);
+    HeartbeatResult heartbeat(ConnectionId connection, std::uint64_t node_id,
+                              std::uint64_t session_id, MonotonicTime now = MonotonicClock::now());
+    LivenessUpdate evaluateLiveness(MonotonicTime now = MonotonicClock::now());
+    std::vector<DeadNodeCleanup> disconnectConnection(ConnectionId connection);
+    void detachHeartbeatConnection(ConnectionId connection) noexcept;
 
     EndpointResult advertise(ConnectionId connection, std::uint64_t node_id,
                              const std::string& topic_name, const std::string& type_name,
@@ -140,6 +199,8 @@ class RegistryState {
     std::vector<TopicRecord> listTopics() const;
     std::optional<TopicRecord> queryTopic(const std::string& topic_name) const;
     std::optional<PublisherEndpoint> publisherEndpoint(std::uint64_t endpoint_id) const;
+    std::optional<NodeRecord> node(std::uint64_t node_id) const;
+    const RegistryMetrics& metrics() const noexcept { return metrics_; }
 
   private:
     NodeRecord* ownedNode(ConnectionId connection, std::uint64_t node_id);
@@ -149,8 +210,10 @@ class RegistryState {
                                    TransportType transport);
     void recomputeTopicMaxMessageSize(std::uint64_t topic_id);
     void eraseTopicIfEmpty(std::uint64_t topic_id);
+    std::optional<DeadNodeCleanup> cleanupDeadNode(std::uint64_t node_id);
 
     std::uint64_t next_node_id_{1};
+    std::uint64_t next_session_id_{1};
     std::uint64_t next_topic_id_{1};
     std::uint64_t next_endpoint_id_{1};
     std::map<std::uint64_t, NodeRecord> nodes_;
@@ -159,6 +222,8 @@ class RegistryState {
     std::map<std::string, std::uint64_t> topic_names_;
     std::map<std::uint64_t, PublisherEndpoint> publishers_;
     std::map<std::uint64_t, SubscriberEndpoint> subscribers_;
+    LivenessConfig liveness_;
+    RegistryMetrics metrics_;
 };
 
 } // namespace mw::registry

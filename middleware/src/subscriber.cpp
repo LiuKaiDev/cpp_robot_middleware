@@ -196,17 +196,14 @@ struct Subscriber::Impl {
         try {
             auto accepted = listener.accept();
             if (accepted.has_value()) {
-                release_context =
-                    std::make_shared<SocketReleaseContext>(std::move(*accepted));
+                release_context = std::make_shared<SocketReleaseContext>(std::move(*accepted));
                 resetFrame();
             }
         } catch (...) {
         }
     }
 
-    int connectionFd() const noexcept {
-        return release_context ? release_context->fd() : -1;
-    }
+    int connectionFd() const noexcept { return release_context ? release_context->fd() : -1; }
 
     UdsReceiveResult receiveUdsAvailable() {
         while (true) {
@@ -228,6 +225,9 @@ struct Subscriber::Impl {
                 }
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     return {UdsReceiveStatus::NeedMore, std::nullopt};
+                }
+                if (errno == ECONNRESET || errno == ENOTCONN) {
+                    return {UdsReceiveStatus::Disconnected, std::nullopt};
                 }
                 return {UdsReceiveStatus::IoError, std::nullopt};
             }
@@ -253,9 +253,8 @@ struct Subscriber::Impl {
             }
 
             while (payload_bytes < payload.size()) {
-                const ssize_t received =
-                    ::recv(connectionFd(), payload.data() + payload_bytes,
-                           payload.size() - payload_bytes, MSG_DONTWAIT);
+                const ssize_t received = ::recv(connectionFd(), payload.data() + payload_bytes,
+                                                payload.size() - payload_bytes, MSG_DONTWAIT);
                 if (received > 0) {
                     payload_bytes += static_cast<std::size_t>(received);
                     continue;
@@ -281,9 +280,8 @@ struct Subscriber::Impl {
 
     ErrorCode receiveWakeAvailable() {
         while (header_bytes < detail::kQueueWakeSize) {
-            const ssize_t received =
-                ::recv(connectionFd(), header_buffer.data() + header_bytes,
-                       detail::kQueueWakeSize - header_bytes, MSG_DONTWAIT);
+            const ssize_t received = ::recv(connectionFd(), header_buffer.data() + header_bytes,
+                                            detail::kQueueWakeSize - header_bytes, MSG_DONTWAIT);
             if (received > 0) {
                 header_bytes += static_cast<std::size_t>(received);
                 continue;
@@ -296,6 +294,9 @@ struct Subscriber::Impl {
             }
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 return ErrorCode::Timeout;
+            }
+            if (errno == ECONNRESET || errno == ENOTCONN) {
+                return ErrorCode::ConnectionLost;
             }
             return ErrorCode::IoError;
         }
@@ -328,7 +329,7 @@ struct Subscriber::Impl {
             return error.code();
         } catch (const std::system_error& error) {
             return error.code().value() == ENOENT ? ErrorCode::SharedMemoryNotFound
-                                                   : ErrorCode::SharedMemoryError;
+                                                  : ErrorCode::SharedMemoryError;
         } catch (...) {
             return ErrorCode::SharedMemoryError;
         }
@@ -344,7 +345,8 @@ struct Subscriber::Impl {
             return std::nullopt;
         }
         if (next->pool_id != pool_view->descriptor().pool_id) {
-            last_error = ErrorCode::InvalidSharedMemory;
+            // A replacement publisher may enqueue before the old data socket reports HUP.
+            // Leave the new handle queued until its wake frame installs the matching pool.
             return std::nullopt;
         }
         const auto handle = queue->tryDequeue();
@@ -358,13 +360,46 @@ struct Subscriber::Impl {
             return std::nullopt;
         }
         last_error = ErrorCode::Ok;
-        return ViewData{release_context, pool_view, *handle, view.payload, view.payload_size,
-                        view.sequence, view.publish_timestamp_ns};
+        return ViewData{release_context,
+                        pool_view,
+                        *handle,
+                        view.payload,
+                        view.payload_size,
+                        view.sequence,
+                        view.publish_timestamp_ns};
     }
 
     void resetConnection() noexcept {
         release_context.reset();
         resetFrame();
+    }
+
+    void resetPublisherState(std::uint64_t dead_pool_id = 0U) noexcept {
+        if (queue) {
+            queue->discardPool(dead_pool_id);
+        }
+        if (dead_pool_id != 0U && discovered_pool.pool_id != 0U &&
+            discovered_pool.pool_id != dead_pool_id) {
+            return;
+        }
+        resetConnection();
+        pool_view.reset();
+        discovered_pool = {};
+    }
+
+    void processPeerEvents() noexcept {
+        if (!registry_session || endpoint_id == 0U) {
+            return;
+        }
+        try {
+            const auto events = registry_session->takePeerEvents(endpoint_id);
+            for (const detail::RegistryPeerEvent& event : events) {
+                if (event.kind == detail::PeerEventKind::PublisherDead) {
+                    resetPublisherState(event.resource_id);
+                }
+            }
+        } catch (...) {
+        }
     }
 
     void resetFrame() noexcept {
@@ -424,10 +459,12 @@ std::optional<ReceivedMessage> Subscriber::waitAndTake(std::chrono::milliseconds
         if (!copied.empty()) {
             std::memcpy(copied.data(), view->data(), copied.size());
         }
-        return ReceivedMessage{std::move(copied), view->sequence(), view->publishTimestampNs(),
-                               view->poolId(), view->chunkIndex(), view->generation(),
+        return ReceivedMessage{std::move(copied),    view->sequence(),   view->publishTimestampNs(),
+                               view->poolId(),       view->chunkIndex(), view->generation(),
                                view->payloadOffset()};
     }
+
+    impl_->processPeerEvents();
 
     timeout = std::max(timeout, std::chrono::milliseconds{0});
     const auto deadline = std::chrono::steady_clock::now() + timeout;
@@ -512,14 +549,22 @@ std::optional<SampleView> Subscriber::waitAndTakeView(std::chrono::milliseconds 
         return std::nullopt;
     }
 
+    impl_->processPeerEvents();
+    impl_->last_error = ErrorCode::Ok;
+
     timeout = std::max(timeout, std::chrono::milliseconds{0});
     const auto deadline = std::chrono::steady_clock::now() + timeout;
     while (true) {
         if (auto view = impl_->tryTakeQueued(); view.has_value()) {
-            return SampleView{std::move(view->release_context), std::move(view->pool_view),
-                              view->payload, view->payload_size, view->sequence,
-                              view->publish_timestamp_ns, view->handle.pool_id,
-                              view->handle.chunk_index, view->handle.generation,
+            return SampleView{std::move(view->release_context),
+                              std::move(view->pool_view),
+                              view->payload,
+                              view->payload_size,
+                              view->sequence,
+                              view->publish_timestamp_ns,
+                              view->handle.pool_id,
+                              view->handle.chunk_index,
+                              view->handle.generation,
                               view->handle.payload_offset};
         }
         if (impl_->last_error != ErrorCode::Ok && impl_->last_error != ErrorCode::Timeout) {
@@ -569,7 +614,11 @@ std::optional<SampleView> Subscriber::waitAndTakeView(std::chrono::milliseconds 
         }
         if (wake_error != ErrorCode::Ok) {
             impl_->last_error = wake_error;
-            impl_->resetConnection();
+            if (wake_error == ErrorCode::ConnectionLost) {
+                impl_->resetPublisherState(impl_->discovered_pool.pool_id);
+            } else {
+                impl_->resetConnection();
+            }
             return std::nullopt;
         }
         impl_->last_error = ErrorCode::Ok;

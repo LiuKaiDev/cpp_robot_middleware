@@ -340,8 +340,7 @@ TEST(MultiSubscriberShmIntegrationTest, NormalDisconnectReleasesKnownReferenceFo
             abandoned_config.max_message_size = 4096U;
             abandoned_config.transport = mw::TransportType::SharedMemory;
             auto abandoned = abandoned_context.createSubscriber(topic, abandoned_config);
-            EXPECT_EQ(publisher.publish(payload.data(), payload.size()).error,
-                      mw::ErrorCode::Ok);
+            EXPECT_EQ(publisher.publish(payload.data(), payload.size()).error, mw::ErrorCode::Ok);
         }
 
         mw::Context subscriber_context{"replacement_subscriber", mw::RegistryConfig{registry_path}};
@@ -351,14 +350,14 @@ TEST(MultiSubscriberShmIntegrationTest, NormalDisconnectReleasesKnownReferenceFo
         subscriber_config.transport = mw::TransportType::SharedMemory;
         auto subscriber = subscriber_context.createSubscriber(topic, subscriber_config);
 
-        EXPECT_EQ(publisher.publish(payload.data(), payload.size()).error,
-                  mw::ErrorCode::QueueClosed);
         const mw::PublishResult replacement_result =
             publisher.publish(payload.data(), payload.size());
         EXPECT_EQ(replacement_result.error, mw::ErrorCode::Ok);
         const auto message = subscriber.waitAndTake(5s);
         ASSERT_TRUE(message.has_value());
         EXPECT_EQ(message->payload, payload);
+        EXPECT_EQ(publisher.publish(payload.data(), payload.size()).error, mw::ErrorCode::Ok);
+        EXPECT_TRUE(subscriber.waitAndTake(5s).has_value());
     }
     EXPECT_EQ(projectPoolObjects(), initial_objects);
 }

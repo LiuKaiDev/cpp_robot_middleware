@@ -1,5 +1,7 @@
 #pragma once
 
+#include <mw/config.hpp>
+
 #include <memory>
 #include <string>
 
@@ -7,7 +9,7 @@ namespace mw::registry {
 
 class RegistryServer {
   public:
-    explicit RegistryServer(std::string socket_path);
+    explicit RegistryServer(std::string socket_path, LivenessConfig liveness = {});
     ~RegistryServer();
 
     RegistryServer(const RegistryServer&) = delete;

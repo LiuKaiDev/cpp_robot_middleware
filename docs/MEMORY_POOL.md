@@ -3,8 +3,8 @@
 ## Scope
 
 Phase 4 replaced the Phase 3 one-object-per-message SHM path with one preallocated pool for the
-lifetime of each SHM publisher. Phase 5 retains this layout and adds subscriber queues plus public
-loan/view APIs around the same chunk lifecycle. See [QUEUES_AND_LOANING.md](QUEUES_AND_LOANING.md)
+lifetime of each SHM publisher. Phase 5 added subscriber queues and public loan/view APIs; Phase 6
+adds crash-time ownership repair around the same chunk lifecycle. See [QUEUES_AND_LOANING.md](QUEUES_AND_LOANING.md)
 for the enqueue/reference protocol and public RAII lifetimes.
 
 ## Pool Lifetime And Ownership
@@ -21,7 +21,8 @@ non-name-owning mapping on its first wake and retains it for its endpoint lifeti
 
 Normal publisher destruction closes data connections, unmaps, and unlinks the pool. Normal
 subscriber destruction unmaps and unsubscribes. An unlink removes the name without invalidating an
-already open mapping. Orphan cleanup after `SIGKILL` is deferred to Phase 6.
+already open mapping. If a publisher dies, the registry unlinks its exact advertised pool name and
+notifies surviving subscribers. The daemon does not scan `/dev/shm` or infer ownership from PID.
 
 ## Configuration And Size Classes
 
@@ -119,7 +120,7 @@ references, duplicate release, invalid index/offset/pool ID, and stale generatio
 
 ## Multi-Subscriber Sharing And Release
 
-Registry control protocol v4 returns every compatible subscriber endpoint and queue descriptor
+Registry control protocol v5 returns every compatible subscriber endpoint and queue descriptor
 plus the publisher pool descriptor. The publisher connects one data UDS and maps one queue per
 discovered subscriber. One publish does:
 
@@ -135,8 +136,10 @@ reclaim at ref_count == 0
 
 Subscribers do not decrement the atomic directly. Each `SampleView` emits exactly one release on
 destruction; the owning API copies through a temporary view. The publisher is the single refcount
-writer and tracks outstanding handles per endpoint. Abrupt subscriber death and repair of an
-ambiguous outstanding reference remain Phase 6 work.
+writer and tracks outstanding handles per endpoint in vectors whose maximum is the configured
+finite chunk count. A dead-subscriber event, socket disconnect, failed dispatch, or discovery
+removal releases every still-tracked obligation exactly once. This includes a reference owned by a
+`SampleView` that vanished with a killed subscriber process.
 
 The copy API completes initial discovery before allocating. A loan may allocate before discovery,
 but failed publication cancels it or reclaims it after the guard reference, so no chunk remains
@@ -163,7 +166,8 @@ optimization are deferred to the benchmark/profiling phases.
 ## Known Limitations
 
 - No `eventfd` or `SCM_RIGHTS` optimization; UDS wakes remain in use.
-- A release timeout can retain a published chunk because safe crash-time reference repair is not
-  implemented until Phase 6.
-- No heartbeat or dead-process detection.
+- A live but indefinitely stalled subscriber is reclaimed only after its whole node misses the
+  heartbeat dead timeout; there is no independent per-view lease.
+- Registry loss is not recovered inside an existing context, and arbitrary pool-header corruption
+  is not repaired.
 - No ROS2 adapter and no benchmark conclusion.

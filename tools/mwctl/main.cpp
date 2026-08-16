@@ -37,9 +37,10 @@ int run(int argc, char** argv) {
 
     if (resource == "node" && command == "list" && argument == argc) {
         const auto nodes = client.listNodes();
-        std::cout << "NODE_ID\tNODE_NAME\n";
+        std::cout << "NODE_ID\tNODE_NAME\tSTATE\n";
         for (const auto& node : nodes) {
-            std::cout << node.node_id << '\t' << node.node_name << '\n';
+            std::cout << node.node_id << '\t' << node.node_name << '\t'
+                      << mw::livenessStateName(node.liveness) << '\n';
         }
         return 0;
     }

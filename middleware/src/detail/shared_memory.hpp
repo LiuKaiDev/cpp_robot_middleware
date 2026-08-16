@@ -41,5 +41,6 @@ class SharedMemoryRegion {
 };
 
 bool isValidSharedMemoryName(const std::string& name) noexcept;
+bool unlinkSharedMemoryName(const std::string& name) noexcept;
 
 } // namespace mw::detail

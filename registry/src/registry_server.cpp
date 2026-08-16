@@ -3,11 +3,15 @@
 #include <mw/registry/registry_state.hpp>
 
 #include "detail/control_protocol.hpp"
+#include "detail/shared_memory.hpp"
+#include "detail/subscriber_queue.hpp"
 #include "detail/unique_fd.hpp"
 #include "detail/unix_socket.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -16,7 +20,9 @@
 #include <string>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <system_error>
+#include <unistd.h>
 #include <utility>
 #include <vector>
 
@@ -78,8 +84,9 @@ detail::PayloadWriter discoveryBody(const DiscoveryResult& result) {
 } // namespace
 
 struct RegistryServer::Impl {
-    explicit Impl(std::string path)
-        : socket_path(std::move(path)), listener(detail::UnixListener::create(socket_path, 64)) {
+    Impl(std::string path, LivenessConfig liveness_config)
+        : socket_path(std::move(path)), listener(detail::UnixListener::create(socket_path, 64)),
+          state(liveness_config), liveness(liveness_config) {
         const int descriptor = ::epoll_create1(EPOLL_CLOEXEC);
         if (descriptor < 0) {
             throw std::system_error(errno, std::generic_category(), "epoll_create1");
@@ -97,8 +104,12 @@ struct RegistryServer::Impl {
         std::array<epoll_event, 32> events{};
         int count = 0;
         do {
+            const int liveness_poll_ms = static_cast<int>(std::max<std::int64_t>(
+                1, std::min<std::int64_t>(100, liveness.suspect_timeout.count() / 2)));
+            const int bounded_timeout =
+                timeout_ms < 0 ? liveness_poll_ms : std::min(timeout_ms, liveness_poll_ms);
             count = ::epoll_wait(epoll_fd.get(), events.data(), static_cast<int>(events.size()),
-                                 timeout_ms);
+                                 bounded_timeout);
         } while (count < 0 && errno == EINTR);
         if (count < 0) {
             throw std::system_error(errno, std::generic_category(), "epoll_wait");
@@ -125,6 +136,7 @@ struct RegistryServer::Impl {
                 removeClient(fd);
             }
         }
+        expireDeadNodes();
     }
 
     void acceptConnections() {
@@ -259,6 +271,7 @@ struct RegistryServer::Impl {
             const IdResult result = state.registerNode(client.connection_id, node_name);
             detail::PayloadWriter body;
             body.writeU64(result.id);
+            body.writeU64(result.session_id);
             queueResponse(fd, header.request_id, result.error, body.data());
             return;
         }
@@ -269,6 +282,9 @@ struct RegistryServer::Impl {
                 return;
             }
             const ErrorCode error = state.unregisterNode(client.connection_id, node_id);
+            if (error == ErrorCode::Ok) {
+                peer_events.erase(node_id);
+            }
             cleanupPending();
             queueResponse(fd, header.request_id, error, {});
             return;
@@ -329,8 +345,8 @@ struct RegistryServer::Impl {
                 !reader.readU16(transport) || !reader.readString(queue.shm_name) ||
                 !reader.readU64(queue.queue_id) || !reader.readU64(queue.segment_size) ||
                 !reader.readU32(queue.capacity) || !reader.readU16(queue.layout_version) ||
-                !reader.readU16(queue.overflow_policy) ||
-                !reader.readU64(queue.block_timeout_ms) || !reader.empty()) {
+                !reader.readU16(queue.overflow_policy) || !reader.readU64(queue.block_timeout_ms) ||
+                !reader.empty()) {
                 queueResponse(fd, header.request_id, ErrorCode::InvalidControlMessage, {});
                 return;
             }
@@ -389,6 +405,7 @@ struct RegistryServer::Impl {
             for (const NodeRecord& node : nodes) {
                 body.writeU64(node.node_id);
                 body.writeString(node.node_name);
+                body.writeU16(static_cast<std::uint16_t>(node.liveness));
             }
             queueResponse(fd, header.request_id, ErrorCode::Ok, body.data());
             return;
@@ -435,6 +452,47 @@ struct RegistryServer::Impl {
             queueResponse(fd, header.request_id, ErrorCode::Ok, body.data());
             return;
         }
+        case detail::Opcode::AttachHeartbeat: {
+            std::uint64_t node_id = 0;
+            std::uint64_t session_id = 0;
+            if (!reader.readU64(node_id) || !reader.readU64(session_id) || !reader.empty()) {
+                queueResponse(fd, header.request_id, ErrorCode::InvalidControlMessage, {});
+                return;
+            }
+            queueResponse(fd, header.request_id,
+                          state.attachHeartbeat(client.connection_id, node_id, session_id), {});
+            return;
+        }
+        case detail::Opcode::Heartbeat: {
+            std::uint64_t node_id = 0;
+            std::uint64_t session_id = 0;
+            if (!reader.readU64(node_id) || !reader.readU64(session_id) || !reader.empty()) {
+                queueResponse(fd, header.request_id, ErrorCode::InvalidControlMessage, {});
+                return;
+            }
+            const HeartbeatResult result =
+                state.heartbeat(client.connection_id, node_id, session_id);
+            detail::PayloadWriter body;
+            body.writeU16(static_cast<std::uint16_t>(result.state));
+            std::vector<PeerEventRecord> events;
+            if (result.error == ErrorCode::Ok) {
+                const auto event_iterator = peer_events.find(node_id);
+                if (event_iterator != peer_events.end()) {
+                    events = std::move(event_iterator->second);
+                    peer_events.erase(event_iterator);
+                }
+            }
+            body.writeU32(static_cast<std::uint32_t>(events.size()));
+            for (const PeerEventRecord& event : events) {
+                body.writeU16(static_cast<std::uint16_t>(event.kind));
+                body.writeU64(event.target_endpoint_id);
+                body.writeU64(event.dead_endpoint_id);
+                body.writeU64(event.topic_id);
+                body.writeU64(event.resource_id);
+            }
+            queueResponse(fd, header.request_id, result.error, body.data());
+            return;
+        }
         case detail::Opcode::Response:
             break;
         }
@@ -465,6 +523,81 @@ struct RegistryServer::Impl {
             } else {
                 ++iterator;
             }
+        }
+    }
+
+    static detail::QueueDescriptor queueDescriptor(const SharedQueueMetadata& metadata) {
+        return {metadata.shm_name,        metadata.queue_id,
+                metadata.segment_size,    metadata.capacity,
+                metadata.layout_version,  static_cast<OverflowPolicy>(metadata.overflow_policy),
+                metadata.block_timeout_ms};
+    }
+
+    static void unlinkSocketPath(const std::string& path) noexcept {
+        struct stat status {};
+        if (::lstat(path.c_str(), &status) != 0) {
+            return;
+        }
+        if (S_ISSOCK(status.st_mode)) {
+            (void)::unlink(path.c_str());
+        }
+    }
+
+    void applyCleanup(const DeadNodeCleanup& cleanup) {
+        for (const SharedQueueMetadata& queue : cleanup.queues) {
+            (void)detail::SharedSubscriberQueue::recoverAndClose(queueDescriptor(queue));
+            (void)detail::unlinkSharedMemoryName(queue.shm_name);
+        }
+        for (const SharedPoolMetadata& pool : cleanup.pools) {
+            (void)detail::unlinkSharedMemoryName(pool.shm_name);
+        }
+        for (const std::string& path : cleanup.socket_paths) {
+            unlinkSocketPath(path);
+        }
+
+        constexpr std::size_t kMaxEventsPerNode = 1024U;
+        for (const PeerEventRecord& event : cleanup.peer_events) {
+            if (!state.node(event.target_node_id).has_value()) {
+                continue;
+            }
+            auto& events = peer_events[event.target_node_id];
+            if (events.size() == kMaxEventsPerNode) {
+                events.erase(events.begin());
+            }
+            events.push_back(event);
+        }
+        peer_events.erase(cleanup.node_id);
+        cleanupPending();
+    }
+
+    int fdForConnection(ConnectionId connection_id) const noexcept {
+        for (const auto& entry : clients) {
+            if (entry.second.connection_id == connection_id) {
+                return entry.first;
+            }
+        }
+        return -1;
+    }
+
+    void closeCleanupConnections(const DeadNodeCleanup& cleanup, int except_fd = -1) {
+        const std::array<ConnectionId, 2> connection_ids{cleanup.control_connection,
+                                                         cleanup.heartbeat_connection};
+        for (const ConnectionId connection_id : connection_ids) {
+            if (connection_id == 0U) {
+                continue;
+            }
+            const int fd = fdForConnection(connection_id);
+            if (fd >= 0 && fd != except_fd) {
+                removeClient(fd, false);
+            }
+        }
+    }
+
+    void expireDeadNodes() {
+        LivenessUpdate update = state.evaluateLiveness();
+        for (const DeadNodeCleanup& cleanup : update.dead_nodes) {
+            applyCleanup(cleanup);
+            closeCleanupConnections(cleanup);
         }
     }
 
@@ -536,7 +669,12 @@ struct RegistryServer::Impl {
         }
     }
 
-    void removeClient(int fd) {
+    void removeClient(int fd, bool cleanup_state = true) {
+        const auto client_iterator = clients.find(fd);
+        if (client_iterator == clients.end()) {
+            return;
+        }
+        const ConnectionId connection_id = client_iterator->second.connection_id;
         (void)::epoll_ctl(epoll_fd.get(), EPOLL_CTL_DEL, fd, nullptr);
         for (auto iterator = pending.begin(); iterator != pending.end();) {
             if (iterator->second.fd == fd) {
@@ -546,19 +684,28 @@ struct RegistryServer::Impl {
             }
         }
         clients.erase(fd);
+        if (cleanup_state) {
+            const auto cleanups = state.disconnectConnection(connection_id);
+            for (const DeadNodeCleanup& cleanup : cleanups) {
+                applyCleanup(cleanup);
+                closeCleanupConnections(cleanup, fd);
+            }
+        }
     }
 
     std::string socket_path;
     detail::UnixListener listener;
     detail::UniqueFd epoll_fd;
     RegistryState state;
+    LivenessConfig liveness;
     ConnectionId next_connection_id{1};
     std::map<int, ClientConnection> clients;
     std::map<std::uint64_t, PendingDiscovery> pending;
+    std::map<std::uint64_t, std::vector<PeerEventRecord>> peer_events;
 };
 
-RegistryServer::RegistryServer(std::string socket_path)
-    : impl_(std::make_unique<Impl>(std::move(socket_path))) {}
+RegistryServer::RegistryServer(std::string socket_path, LivenessConfig liveness)
+    : impl_(std::make_unique<Impl>(std::move(socket_path), liveness)) {}
 
 RegistryServer::~RegistryServer() = default;
 

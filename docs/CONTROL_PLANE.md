@@ -3,8 +3,9 @@
 ## Scope And Separation
 
 Phase 2 introduced registry-based discovery on one Linux host. Phase 3 added transport metadata,
-Phase 4 added publisher pool metadata and N-subscriber discovery, and Phase 5 adds per-subscriber
-queue descriptors while keeping control and payload responsibilities separate:
+Phase 4 added publisher pool metadata, Phase 5 added per-subscriber queue descriptors, and Phase 6
+adds liveness/session messages plus exact crash cleanup while keeping control and payload
+responsibilities separate:
 
 ```text
 Context / Publisher / Subscriber / mwctl
@@ -31,9 +32,13 @@ and `mwctl --registry` can select another path.
 - `RegistryClient` sends synchronous correlated requests for middleware contexts and `mwctl`.
 - A registry-enabled `Context` owns a shared `RegistrySession`; endpoints retain that session until
   their own destruction, so endpoint cleanup remains possible if the original Context is gone.
+- Each session owns a second control connection and one RAII heartbeat thread. The primary
+  connection remains available for synchronous calls while the heartbeat connection periodically
+  renews the node lease and receives peer-death events.
 
-The daemon uses one event-loop thread. Applications do not gain a middleware worker thread:
-control calls, discovery waits, publish, and receive all run on caller threads.
+The daemon uses one event-loop thread. Applications have one control-only heartbeat thread; all
+data-plane work, discovery, publish, receive, queue repair, and reference repair remains on caller
+threads.
 
 ## Control Socket And Header
 
@@ -42,13 +47,13 @@ The control plane uses `AF_UNIX`, `SOCK_STREAM`. Each frame begins with this log
 | Offset | Size | Field | Encoding |
 | --- | ---: | --- | --- |
 | 0 | 4 | magic (`0x4D574332`, `MWC2`) | big-endian |
-| 4 | 2 | protocol version (`4`) | big-endian |
+| 4 | 2 | protocol version (`5`) | big-endian |
 | 6 | 2 | opcode | big-endian |
 | 8 | 4 | request ID | big-endian |
 | 12 | 4 | payload size | big-endian |
 
-Version 4 retains pool name/ID/segment-size/layout-version and adds each SHM subscriber's queue
-name, queue ID, segment size, capacity, layout version, overflow policy, and block timeout. Resolve
+Version 5 retains pool and subscriber queue descriptors and adds node session IDs, heartbeat attach
+and renewal, liveness state, and bounded peer-death events. Resolve
 returns a counted list of all compatible subscriber endpoint IDs, socket paths, size bounds, and
 queue descriptors. The header is encoded field by field; a C++ structure is never sent as the wire
 ABI.
@@ -59,7 +64,7 @@ state change.
 
 ## Opcodes And Responses
 
-Phase 2 defines only the operations it uses:
+The current protocol defines these operations:
 
 | Opcode | Responsibility |
 | --- | --- |
@@ -70,6 +75,8 @@ Phase 2 defines only the operations it uses:
 | `LIST_NODES` | Return sorted live registry node records |
 | `LIST_TOPICS` | Return sorted live topic records |
 | `QUERY_TOPIC` | Return type, size, publisher count, and subscriber count |
+| `ATTACH_HEARTBEAT` | Bind a dedicated connection to one node/session identity |
+| `HEARTBEAT` | Renew the lease and return liveness plus bounded peer-death events |
 | `RESPONSE` | Carry an error code, message, and operation-specific body |
 
 Every request receives the same `request_id` in its response. A response envelope always starts
@@ -78,9 +85,10 @@ request ID, malformed response body, unsupported version, and oversized response
 
 ## Registry Models
 
-A `NodeRecord` contains `node_id`, unique `node_name`, owning control connection, and sets of owned
-publisher/subscriber endpoint IDs. IDs are monotonically assigned and are not reused by the running
-daemon.
+A `NodeRecord` contains `node_id`, unique monotonically assigned `session_id`, unique `node_name`,
+primary and heartbeat connection IDs, last monotonic heartbeat time, liveness state, and sets of
+owned publisher/subscriber endpoint IDs. IDs are not reused by the running daemon. Heartbeats must
+match all three of connection binding, node ID, and session ID; PID is not an identity authority.
 
 A `TopicRecord` contains `topic_id`, name, `type_name`, `type_hash`, `transport_type`, negotiated
 maximum message size, at most one publisher endpoint, and zero or more subscriber endpoints. Empty
@@ -123,7 +131,11 @@ subscription completes that pending request; the original publisher then connect
 restarted. Publisher payload sequence numbering begins only after discovery succeeds.
 
 Normal endpoint destruction sends unadvertise/unsubscribe. The last session owner unregisters the
-node. RAII wrappers close descriptors, and listener owners unlink paths after clean shutdown.
+node. Primary control EOF/HUP immediately removes the node and endpoints. If the primary socket
+stays open but heartbeats stop, the monotonic state machine changes ALIVE to SUSPECTED and then
+terminal DEAD. Cleanup closes the companion heartbeat connection, removes exact registry records,
+unlinks registered pool/queue/socket names, repairs/closes dead subscriber queues, and emits peer
+events. Repeating cleanup is harmless because missing records and names are accepted.
 
 ## mwctl
 
@@ -136,18 +148,21 @@ node. RAII wrappers close descriptors, and listener owners unlink paths after cl
 ```
 
 Use `--registry PATH` before the resource name for a non-default control socket. Node and topic
-lists are sorted by name for deterministic output.
+lists are sorted by name for deterministic output. `node list` includes `ALIVE` or `SUSPECTED`;
+DEAD records have already been removed.
 
 ## Known Limitations
 
 - Linux single-host UDS only; no distributed discovery.
-- No heartbeat, dead-process detection, crash cleanup, or stale pathname reclamation. Abruptly
-  disconnected node records may remain until daemon restart; this is reserved for Phase 6.
-- `RegistryClient` calls are synchronous, and a publisher can wait indefinitely for its first
-  compatible subscriber.
+- Heartbeat defaults are 250 ms interval, 750 ms suspect timeout, and 1500 ms dead timeout; the
+  daemon CLI and `RegistryConfig` may override them only when interval < suspect < dead.
+- `RegistryClient` application calls are synchronous, and a publisher can wait indefinitely for
+  its first compatible subscriber while its dedicated heartbeat connection remains responsive.
 - Registry sessions are intended to be called serially by an application; concurrent request
   multiplexing is not implemented.
 - SHM discovery returns all current subscribers; the copied UDS baseline remains one-to-one.
-- The registry never creates, maps, unlinks, or forwards shared-memory pools or queues.
-- No heartbeat, crash-time queue/refcount repair, ROS2 adapter, or benchmark framework is
-  implemented.
+- The registry maps a registered dead-subscriber queue only for bounded robust close/repair. It
+  never creates data-plane storage, forwards payloads, or scans namespaces.
+- A heartbeat connection failure ends renewal for that session; automatic registry-daemon
+  reconnection within an existing context is not implemented.
+- No ROS2 adapter or benchmark framework is implemented.

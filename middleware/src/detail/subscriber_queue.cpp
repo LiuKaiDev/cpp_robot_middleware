@@ -41,10 +41,39 @@ static_assert(std::is_trivially_copyable<ChunkHandle>::value,
 static_assert(sizeof(SubscriberQueueHeader) <= std::numeric_limits<std::uint16_t>::max(),
               "subscriber queue header size exceeds its wire field");
 
+void resetRingAfterOwnerDeath(SubscriberQueueHeader& header) noexcept {
+    header.head = 0U;
+    header.tail = 0U;
+    header.size = 0U;
+    ++header.owner_death_recoveries;
+    (void)::pthread_cond_broadcast(&header.not_full);
+}
+
+bool makeMutexConsistentAfterOwnerDeath(SubscriberQueueHeader& header) noexcept {
+    resetRingAfterOwnerDeath(header);
+    return ::pthread_mutex_consistent(&header.mutex) == 0;
+}
+
 class PthreadLock {
   public:
-    explicit PthreadLock(pthread_mutex_t& mutex) noexcept
-        : mutex_(&mutex), locked_(::pthread_mutex_lock(mutex_) == 0) {}
+    explicit PthreadLock(SubscriberQueueHeader& header, bool try_only = false) noexcept
+        : mutex_(&header.mutex) {
+        const int error = try_only ? ::pthread_mutex_trylock(mutex_) : ::pthread_mutex_lock(mutex_);
+        if (error == 0) {
+            locked_ = true;
+            return;
+        }
+        if (error == EOWNERDEAD) {
+            locked_ = true;
+            recovered_owner_ = makeMutexConsistentAfterOwnerDeath(header);
+            if (!recovered_owner_) {
+                (void)::pthread_mutex_unlock(mutex_);
+                locked_ = false;
+            }
+        } else if (error == ENOTRECOVERABLE) {
+            not_recoverable_ = true;
+        }
+    }
 
     ~PthreadLock() {
         if (locked_) {
@@ -56,6 +85,8 @@ class PthreadLock {
     PthreadLock& operator=(const PthreadLock&) = delete;
 
     bool locked() const noexcept { return locked_; }
+    bool recoveredOwner() const noexcept { return recovered_owner_; }
+    bool notRecoverable() const noexcept { return not_recoverable_; }
     void unlock() noexcept {
         if (locked_) {
             (void)::pthread_mutex_unlock(mutex_);
@@ -65,8 +96,17 @@ class PthreadLock {
 
   private:
     pthread_mutex_t* mutex_;
-    bool locked_;
+    bool locked_{false};
+    bool recovered_owner_{false};
+    bool not_recoverable_{false};
 };
+
+bool recoverConditionWaitOwnerDeath(SubscriberQueueHeader& header, int error) noexcept {
+    if (error != EOWNERDEAD) {
+        return error == 0;
+    }
+    return makeMutexConsistentAfterOwnerDeath(header);
+}
 
 timespec monotonicDeadline(std::uint64_t timeout_ms) noexcept {
     timespec deadline{};
@@ -88,6 +128,21 @@ timespec monotonicDeadline(std::uint64_t timeout_ms) noexcept {
         deadline.tv_nsec -= 1000000000L;
     }
     return deadline;
+}
+
+bool immutableHeaderMatches(const SubscriberQueueHeader& header,
+                            const QueueDescriptor& descriptor) noexcept {
+    return header.magic == kSubscriberQueueMagic && header.version == kQueueLayoutVersion &&
+           header.header_size == sizeof(SubscriberQueueHeader) &&
+           header.segment_size == descriptor.segment_size &&
+           header.queue_id == descriptor.queue_id && header.capacity == descriptor.capacity &&
+           header.overflow_policy == static_cast<std::uint16_t>(descriptor.overflow_policy) &&
+           header.block_timeout_ms == descriptor.block_timeout_ms;
+}
+
+bool ringInvariantsHold(const SubscriberQueueHeader& header) noexcept {
+    return header.capacity != 0U && header.head < header.capacity &&
+           header.tail < header.capacity && header.size <= header.capacity;
 }
 
 } // namespace
@@ -141,8 +196,11 @@ SharedSubscriberQueue::create(const QueueDescriptor& descriptor) {
         mutex_attributes_initialized = true;
         error = ::pthread_mutexattr_setpshared(&mutex_attributes, PTHREAD_PROCESS_SHARED);
         if (error != 0) {
-            throw std::system_error(error, std::generic_category(),
-                                    "pthread_mutexattr_setpshared");
+            throw std::system_error(error, std::generic_category(), "pthread_mutexattr_setpshared");
+        }
+        error = ::pthread_mutexattr_setrobust(&mutex_attributes, PTHREAD_MUTEX_ROBUST);
+        if (error != 0) {
+            throw std::system_error(error, std::generic_category(), "pthread_mutexattr_setrobust");
         }
         error = ::pthread_mutex_init(&header->mutex, &mutex_attributes);
         if (error != 0) {
@@ -157,8 +215,7 @@ SharedSubscriberQueue::create(const QueueDescriptor& descriptor) {
         condition_attributes_initialized = true;
         error = ::pthread_condattr_setpshared(&condition_attributes, PTHREAD_PROCESS_SHARED);
         if (error != 0) {
-            throw std::system_error(error, std::generic_category(),
-                                    "pthread_condattr_setpshared");
+            throw std::system_error(error, std::generic_category(), "pthread_condattr_setpshared");
         }
         error = ::pthread_condattr_setclock(&condition_attributes, CLOCK_MONOTONIC);
         if (error != 0) {
@@ -207,24 +264,22 @@ SharedSubscriberQueue::open(const QueueDescriptor& descriptor) {
     SharedMemoryRegion region =
         SharedMemoryRegion::openReadWrite(descriptor.shm_name, descriptor.segment_size);
     auto* header = static_cast<SubscriberQueueHeader*>(region.data());
-    if (header->magic != kSubscriberQueueMagic || header->version != kQueueLayoutVersion ||
-        header->header_size != sizeof(SubscriberQueueHeader) ||
-        header->segment_size != descriptor.segment_size || header->queue_id != descriptor.queue_id ||
-        header->capacity != descriptor.capacity ||
-        header->overflow_policy != static_cast<std::uint16_t>(descriptor.overflow_policy) ||
-        header->block_timeout_ms != descriptor.block_timeout_ms || header->head >= header->capacity ||
-        header->tail >= header->capacity || header->size > header->capacity) {
+    if (!immutableHeaderMatches(*header, descriptor)) {
         throw MiddlewareError(ErrorCode::InvalidSharedMemory,
                               "subscriber queue metadata does not match its descriptor");
     }
 
-    PthreadLock lock{header->mutex};
+    PthreadLock lock{*header};
     if (!lock.locked()) {
         throw MiddlewareError(ErrorCode::SharedMemoryError,
                               "subscriber queue mutex could not be locked");
     }
-    if (header->closed != 0U || header->attachment_count ==
-                                    std::numeric_limits<std::uint32_t>::max()) {
+    if (!ringInvariantsHold(*header)) {
+        throw MiddlewareError(ErrorCode::InvalidSharedMemory,
+                              "subscriber queue ring invariants are invalid");
+    }
+    if (header->closed != 0U ||
+        header->attachment_count == std::numeric_limits<std::uint32_t>::max()) {
         throw MiddlewareError(ErrorCode::QueueClosed, "subscriber queue is closed");
     }
     ++header->attachment_count;
@@ -249,7 +304,7 @@ SharedSubscriberQueue::~SharedSubscriberQueue() {
 QueueEnqueueResult SharedSubscriberQueue::enqueue(const ChunkHandle& handle,
                                                   QueueNotifyCallback notify,
                                                   void* notify_context) noexcept {
-    PthreadLock lock{header_->mutex};
+    PthreadLock lock{*header_};
     if (!lock.locked()) {
         return {QueueEnqueueStatus::SynchronizationError, std::nullopt, false};
     }
@@ -274,13 +329,13 @@ QueueEnqueueResult SharedSubscriberQueue::enqueue(const ChunkHandle& handle,
         } else {
             const timespec deadline = monotonicDeadline(header_->block_timeout_ms);
             while (header_->size == header_->capacity && header_->closed == 0U) {
-                const int error = ::pthread_cond_timedwait(&header_->not_full, &header_->mutex,
-                                                           &deadline);
+                const int error =
+                    ::pthread_cond_timedwait(&header_->not_full, &header_->mutex, &deadline);
                 if (error == ETIMEDOUT) {
                     ++header_->block_timeouts;
                     return {QueueEnqueueStatus::TimedOut, std::nullopt, false};
                 }
-                if (error != 0) {
+                if (!recoverConditionWaitOwnerDeath(*header_, error)) {
                     return {QueueEnqueueStatus::SynchronizationError, std::nullopt, false};
                 }
             }
@@ -311,7 +366,7 @@ QueueEnqueueResult SharedSubscriberQueue::enqueue(const ChunkHandle& handle,
 }
 
 std::optional<ChunkHandle> SharedSubscriberQueue::tryDequeue() noexcept {
-    PthreadLock lock{header_->mutex};
+    PthreadLock lock{*header_};
     if (!lock.locked() || header_->size == 0U) {
         return std::nullopt;
     }
@@ -324,7 +379,7 @@ std::optional<ChunkHandle> SharedSubscriberQueue::tryDequeue() noexcept {
 }
 
 std::optional<ChunkHandle> SharedSubscriberQueue::peek() noexcept {
-    PthreadLock lock{header_->mutex};
+    PthreadLock lock{*header_};
     if (!lock.locked() || header_->size == 0U) {
         return std::nullopt;
     }
@@ -332,7 +387,7 @@ std::optional<ChunkHandle> SharedSubscriberQueue::peek() noexcept {
 }
 
 std::vector<ChunkHandle> SharedSubscriberQueue::drain() {
-    PthreadLock lock{header_->mutex};
+    PthreadLock lock{*header_};
     if (!lock.locked()) {
         throw MiddlewareError(ErrorCode::SharedMemoryError,
                               "subscriber queue mutex could not be locked");
@@ -350,7 +405,7 @@ std::vector<ChunkHandle> SharedSubscriberQueue::drain() {
 }
 
 std::vector<ChunkHandle> SharedSubscriberQueue::closeAndDrain() {
-    PthreadLock lock{header_->mutex};
+    PthreadLock lock{*header_};
     if (!lock.locked()) {
         throw MiddlewareError(ErrorCode::SharedMemoryError,
                               "subscriber queue mutex could not be locked");
@@ -368,14 +423,76 @@ std::vector<ChunkHandle> SharedSubscriberQueue::closeAndDrain() {
     return handles;
 }
 
+void SharedSubscriberQueue::discardPool(std::uint64_t pool_id) noexcept {
+    PthreadLock lock{*header_};
+    if (!lock.locked()) {
+        return;
+    }
+    const std::uint32_t original_size = header_->size;
+    const std::uint32_t original_head = header_->head;
+    std::uint32_t kept = 0U;
+    for (std::uint32_t index = 0U; index < original_size; ++index) {
+        const ChunkHandle handle = slots()[(original_head + index) % header_->capacity];
+        if (pool_id != 0U && handle.pool_id != pool_id) {
+            slots()[(original_head + kept) % header_->capacity] = handle;
+            ++kept;
+        }
+    }
+    header_->head = original_head;
+    header_->tail = (original_head + kept) % header_->capacity;
+    header_->size = kept;
+    ++header_->peer_resets;
+    (void)::pthread_cond_broadcast(&header_->not_full);
+}
+
+ErrorCode SharedSubscriberQueue::recoverAndClose(const QueueDescriptor& descriptor) noexcept {
+    try {
+        validateDescriptor(descriptor);
+        SharedMemoryRegion region =
+            SharedMemoryRegion::openReadWrite(descriptor.shm_name, descriptor.segment_size);
+        auto* header = static_cast<SubscriberQueueHeader*>(region.data());
+        if (!immutableHeaderMatches(*header, descriptor)) {
+            return ErrorCode::InvalidSharedMemory;
+        }
+        PthreadLock lock{*header, true};
+        if (!lock.locked()) {
+            return ErrorCode::SharedMemoryError;
+        }
+        header->head = 0U;
+        header->tail = 0U;
+        header->size = 0U;
+        header->closed = 1U;
+        ++header->peer_resets;
+        (void)::pthread_cond_broadcast(&header->not_full);
+        return ErrorCode::Ok;
+    } catch (const std::system_error& error) {
+        return error.code().value() == ENOENT ? ErrorCode::Ok : ErrorCode::SharedMemoryError;
+    } catch (...) {
+        return ErrorCode::InvalidSharedMemory;
+    }
+}
+
+bool SharedSubscriberQueue::abandonMutexForTesting(bool corrupt_invariants) noexcept {
+    const int error = ::pthread_mutex_lock(&header_->mutex);
+    if (error != 0) {
+        return false;
+    }
+    if (corrupt_invariants) {
+        header_->head = header_->capacity;
+        header_->tail = header_->capacity;
+        header_->size = header_->capacity;
+    }
+    return true;
+}
+
 QueueStats SharedSubscriberQueue::stats() noexcept {
-    PthreadLock lock{header_->mutex};
+    PthreadLock lock{*header_};
     if (!lock.locked()) {
         return {};
     }
-    return {header_->enqueued,       header_->dequeued,      header_->dropped_newest,
-            header_->dropped_oldest, header_->block_timeouts, header_->size,
-            header_->max_size};
+    return {header_->enqueued,       header_->dequeued,       header_->dropped_newest,
+            header_->dropped_oldest, header_->block_timeouts, header_->owner_death_recoveries,
+            header_->peer_resets,    header_->size,           header_->max_size};
 }
 
 ChunkHandle* SharedSubscriberQueue::slots() noexcept {
@@ -392,7 +509,7 @@ void SharedSubscriberQueue::close() noexcept {
     if (!attached_) {
         return;
     }
-    PthreadLock lock{header_->mutex};
+    PthreadLock lock{*header_};
     if (!lock.locked()) {
         return;
     }
@@ -406,7 +523,7 @@ void SharedSubscriberQueue::detach() noexcept {
     }
     bool last_attachment = false;
     {
-        PthreadLock lock{header_->mutex};
+        PthreadLock lock{*header_};
         if (!lock.locked() || header_->attachment_count == 0U) {
             attached_ = false;
             return;

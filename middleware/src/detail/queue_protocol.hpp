@@ -15,7 +15,7 @@ namespace mw::detail {
 
 inline constexpr std::uint32_t kQueueProtocolMagic = 0x4D575135U;
 inline constexpr std::uint16_t kQueueProtocolVersion = 1U;
-inline constexpr std::uint16_t kQueueLayoutVersion = 1U;
+inline constexpr std::uint16_t kQueueLayoutVersion = 2U;
 inline constexpr std::size_t kMaxQueueNameSize = 192U;
 inline constexpr std::size_t kQueueWakeHeaderSize = 80U;
 inline constexpr std::size_t kQueueWakeSize = kQueueWakeHeaderSize + kMaxPoolNameSize;
@@ -50,10 +50,8 @@ std::optional<QueueWake> decodeQueueWake(const std::uint8_t* data, std::size_t s
 ErrorCode validateQueueWake(const QueueWake& wake, std::uint64_t expected_queue_id,
                             std::uint64_t expected_topic_id) noexcept;
 
-std::array<std::uint8_t, kQueueReleaseSize>
-encodeQueueRelease(const ChunkHandle& handle) noexcept;
-std::optional<ChunkHandle> decodeQueueRelease(const std::uint8_t* data,
-                                              std::size_t size) noexcept;
+std::array<std::uint8_t, kQueueReleaseSize> encodeQueueRelease(const ChunkHandle& handle) noexcept;
+std::optional<ChunkHandle> decodeQueueRelease(const std::uint8_t* data, std::size_t size) noexcept;
 
 bool validOverflowPolicy(OverflowPolicy policy) noexcept;
 

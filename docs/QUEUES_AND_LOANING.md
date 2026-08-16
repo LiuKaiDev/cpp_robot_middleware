@@ -2,9 +2,10 @@
 
 ## Scope
 
-Phase 5 adds a bounded queue per SHM subscriber, explicit overflow behavior, writable publisher
-loans, and read-only subscriber views. The queue contains metadata only. Payload bytes remain in the
-publisher-owned memory pool documented in [MEMORY_POOL.md](MEMORY_POOL.md).
+Phase 5 added a bounded queue per SHM subscriber, explicit overflow behavior, writable publisher
+loans, and read-only subscriber views. Phase 6 makes the queue mutex robust and adds crash repair.
+The queue contains metadata only. Payload bytes remain in the publisher-owned memory pool
+documented in [MEMORY_POOL.md](MEMORY_POOL.md).
 
 The copied UDS baseline and the ordinary SHM `Publisher::publish()` path remain available.
 
@@ -13,7 +14,8 @@ The copied UDS baseline and the ordinary SHM `Publisher::publish()` path remain 
 Every SHM `Subscriber` creates one POSIX SHM queue before registering its endpoint. The queue name,
 ID, exact segment size, capacity, layout version, overflow policy, and block timeout are sent to the
 registry. Discovery returns that descriptor to the publisher, which opens a read-write mapping.
-The registry stores descriptor bytes only; it never maps or owns a queue.
+The registry stores the descriptor and maps the queue only when it must robust-close a dead
+subscriber's registered queue.
 
 ```text
 Publisher pool                         Subscriber endpoint
@@ -34,8 +36,8 @@ checked-size overflow are rejected.
 
 The native local-host layout consists of `SubscriberQueueHeader`, alignment padding, and exactly
 `capacity` `ChunkHandle` slots. Header state includes head, tail, current size, capacity, high-water
-mark, close state, attachment count, policy, timeout, counters, one process-shared mutex, and one
-process-shared condition variable.
+mark, close state, attachment count, policy, timeout, policy/repair counters, one robust
+process-shared mutex, and one process-shared condition variable. The queue layout version is 2.
 
 Each entry is only:
 
@@ -49,14 +51,18 @@ size field.
 
 ## Synchronization Model
 
-Queue mutation uses a `PTHREAD_PROCESS_SHARED` mutex. Producers waiting for space use a
+Queue mutation uses a `PTHREAD_PROCESS_SHARED | PTHREAD_MUTEX_ROBUST` mutex. Producers waiting for space use a
 `PTHREAD_PROCESS_SHARED` condition variable configured with `CLOCK_MONOTONIC`. A dequeue signals
 one blocked producer; close broadcasts to all waiters. All condition waits recheck the full/closed
 predicates while holding the mutex.
 
-There is no lock-free queue, robust mutex recovery, owner-death repair, data-plane worker thread,
-or hard real-time claim. Publisher and subscriber application threads perform queue operations.
-The registry retains its single `epoll` thread.
+On `EOWNERDEAD`, the acquiring process treats ring indices/size as uncertain, resets the queue to
+empty, increments `owner_death_recoveries`, broadcasts the condition, and calls
+`pthread_mutex_consistent`. This may drop queued handles; publisher-side outstanding tracking is the
+authority that repairs their references. `ENOTRECOVERABLE` becomes an explicit synchronization
+error. There is no lock-free queue, data-plane worker thread, or hard real-time claim. Publisher and
+subscriber application threads perform normal queue operations; the registry event loop performs
+only dead-subscriber close/repair.
 
 ## Queue Full Semantics
 
@@ -95,7 +101,9 @@ subscriber cannot release the new generation to zero and allow reuse while the p
 adding references for later subscribers.
 
 The publisher tracks outstanding handles per connection and is the only process that mutates pool
-reference counts or free lists. Subscriber releases are fixed metadata frames.
+reference counts or free lists. The vector is bounded by the total configured pool chunk count.
+Subscriber releases are fixed metadata frames. Dead-subscriber cleanup drains that endpoint's
+remaining vector exactly once and tombstones the endpoint until discovery removes it.
 
 ## UDS Wake And Release
 
@@ -104,7 +112,7 @@ descriptor and queue ID; it contains no handle or business payload. A 32-byte re
 `ChunkHandle` and no payload. A wake is sent only for an empty-to-nonempty transition. The
 subscriber reads the ring as the source of truth, so one wake can cover multiple queued entries.
 
-`eventfd` optimization is deferred. UDS remains the supported Phase 5 wake mechanism.
+`eventfd` optimization is deferred. UDS remains the supported wake mechanism.
 
 ## LoanedSample Lifecycle
 
@@ -161,14 +169,21 @@ subscriber `SampleView`. This statement does not apply to UDS, ordinary `publish
 `ReceivedMessage` compatibility API. Virtual addresses are not compared across processes; logical
 pool ID, chunk index, generation, and payload offset identify the same payload.
 
-## Normal Cleanup And Crash Boundary
+## Normal And Crash Cleanup
 
 Normal subscriber destruction closes the queue, wakes blocked producers, drains queued handles,
 and emits their releases. Existing `SampleView` objects retain their release channel and release
 later. Normal publisher destruction waits a bounded interval for outstanding view releases and
 then drains remaining queued handles before unmapping and unlinking its pool.
 
-Phase 5 does not repair a queue or reference count after `SIGKILL`, detect dead endpoints, reclaim
-an ambiguous dead-subscriber reference, or scavenge orphaned SHM objects. It has no heartbeat,
-lease, suspected/dead state, robust-mutex recovery, ROS2 adapter, or benchmark conclusion. Those
-boundaries remain for later phases.
+After subscriber `SIGKILL`, control EOF/HUP or heartbeat timeout removes its endpoint. The registry
+opens the exact registered queue, robust-recovers the mutex if necessary, marks the queue closed,
+broadcasts blocked producers, and unlinks the name. A peer-death event tells the publisher to
+release all still-outstanding endpoint references. Other subscribers and their queues are left
+untouched. Repeated cleanup tolerates missing records and already-unlinked names.
+
+After publisher death, the registry unlinks the exact pool name and tells subscribers to discard
+only entries for that pool and reset the old mapping/connection. A replacement publisher may then
+connect and install a new pool descriptor. Phase 6 does not repair arbitrary queue memory
+corruption, recover a failed registry daemon in-place, provide ROS2 integration, or claim hard
+real-time behavior.

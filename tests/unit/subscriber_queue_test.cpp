@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <future>
 #include <string>
+#include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
 
@@ -22,8 +23,7 @@ mw::detail::QueueDescriptor descriptor(const std::string& label, std::uint32_t c
     const std::uint64_t id =
         (static_cast<std::uint64_t>(static_cast<std::uint32_t>(::getpid())) << 32U) |
         queue_counter.fetch_add(1U);
-    return {"/mw_q5_unit_" + std::to_string(::getpid()) + "_" + label + "_" +
-                std::to_string(id),
+    return {"/mw_q5_unit_" + std::to_string(::getpid()) + "_" + label + "_" + std::to_string(id),
             id,
             mw::detail::SharedSubscriberQueue::requiredSegmentSize(capacity),
             capacity,
@@ -51,8 +51,8 @@ TEST(SubscriberQueueTest, HandlesEmptyFifoWraparoundAndLongRuns) {
     std::uint32_t wake_count = 0U;
     for (std::uint32_t cycle = 0U; cycle < 2000U; ++cycle) {
         for (std::uint32_t index = 0U; index < info.capacity; ++index) {
-            const auto result = producer->enqueue(handle(cycle * info.capacity + index), countWake,
-                                                  &wake_count);
+            const auto result =
+                producer->enqueue(handle(cycle * info.capacity + index), countWake, &wake_count);
             ASSERT_EQ(result.status, mw::detail::QueueEnqueueStatus::Accepted);
         }
         for (std::uint32_t index = 0U; index < info.capacity; ++index) {
@@ -130,8 +130,7 @@ TEST(SubscriberQueueTest, BlockPolicyWakesWhenConsumerCreatesSpace) {
 }
 
 TEST(SubscriberQueueTest, RejectsZeroAndExcessiveDepth) {
-    EXPECT_THROW(mw::detail::SharedSubscriberQueue::requiredSegmentSize(0U),
-                 std::invalid_argument);
+    EXPECT_THROW(mw::detail::SharedSubscriberQueue::requiredSegmentSize(0U), std::invalid_argument);
     EXPECT_THROW(mw::detail::SharedSubscriberQueue::requiredSegmentSize(
                      mw::detail::kMaxSubscriberQueueDepth + 1U),
                  std::invalid_argument);
@@ -139,7 +138,7 @@ TEST(SubscriberQueueTest, RejectsZeroAndExcessiveDepth) {
 
 TEST(SubscriberQueueTest, WakeAndReleaseFramesContainMetadataOnly) {
     const mw::detail::PoolDescriptor pool{"/mw_p5_protocol", 91U, 8U * 1024U, 12U,
-                                           mw::detail::kPoolLayoutVersion};
+                                          mw::detail::kPoolLayoutVersion};
     const auto wake = mw::detail::encodeQueueWake({pool, 77U});
     ASSERT_TRUE(wake.has_value());
     EXPECT_EQ(wake->size(), mw::detail::kQueueWakeSize);
@@ -153,6 +152,30 @@ TEST(SubscriberQueueTest, WakeAndReleaseFramesContainMetadataOnly) {
     const auto release = mw::detail::encodeQueueRelease(original);
     EXPECT_EQ(release.size(), mw::detail::kQueueReleaseSize);
     EXPECT_EQ(mw::detail::decodeQueueRelease(release.data(), release.size()), original);
+}
+
+TEST(SubscriberQueueTest, RepairsRobustMutexAfterOwnerProcessDies) {
+    const auto info = descriptor("owner_death", 3U, mw::OverflowPolicy::DropOldest);
+    auto queue = mw::detail::SharedSubscriberQueue::create(info);
+    ASSERT_EQ(queue->enqueue(handle(1U), nullptr, nullptr).status,
+              mw::detail::QueueEnqueueStatus::Accepted);
+
+    const pid_t child = ::fork();
+    ASSERT_GE(child, 0);
+    if (child == 0) {
+        ::_exit(queue->abandonMutexForTesting(true) ? 0 : 1);
+    }
+    int status = 0;
+    ASSERT_EQ(::waitpid(child, &status, 0), child);
+    ASSERT_TRUE(WIFEXITED(status));
+    ASSERT_EQ(WEXITSTATUS(status), 0);
+
+    const auto recovered = queue->stats();
+    EXPECT_EQ(recovered.owner_death_recoveries, 1U);
+    EXPECT_EQ(recovered.current_size, 0U);
+    EXPECT_EQ(queue->enqueue(handle(2U), nullptr, nullptr).status,
+              mw::detail::QueueEnqueueStatus::Accepted);
+    EXPECT_EQ(queue->tryDequeue(), handle(2U));
 }
 
 } // namespace
