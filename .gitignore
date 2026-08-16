@@ -4,6 +4,14 @@ build_*/
 _install/
 install_ros2*/
 log_ros2*/
+install_ros2_benchmark*/
+log/
+__pycache__/
+*.py[cod]
+benchmark/results/*
+!benchmark/results/.gitkeep
+!benchmark/results/phase8_reference/
+!benchmark/results/phase8_reference/**
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake

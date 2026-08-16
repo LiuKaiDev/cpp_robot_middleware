@@ -34,6 +34,7 @@ add_subdirectory(middleware)
 add_subdirectory(registry)
 add_subdirectory(tools/mwctl)
 add_subdirectory(examples)
+add_subdirectory(benchmark/cpp)
 
 include(CTest)
 if(BUILD_TESTING)

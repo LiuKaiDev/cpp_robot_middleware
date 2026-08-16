@@ -15,7 +15,7 @@ namespace mw::detail {
 
 inline constexpr std::uint32_t kQueueProtocolMagic = 0x4D575135U;
 inline constexpr std::uint16_t kQueueProtocolVersion = 1U;
-inline constexpr std::uint16_t kQueueLayoutVersion = 2U;
+inline constexpr std::uint16_t kQueueLayoutVersion = 3U;
 inline constexpr std::size_t kMaxQueueNameSize = 192U;
 inline constexpr std::size_t kQueueWakeHeaderSize = 80U;
 inline constexpr std::size_t kQueueWakeSize = kQueueWakeHeaderSize + kMaxPoolNameSize;

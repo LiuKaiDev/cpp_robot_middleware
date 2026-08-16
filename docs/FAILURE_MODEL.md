@@ -119,7 +119,7 @@ cannot release the new allocation.
 
 ## Robust Process-Shared Mutex
 
-Queue layout version 2 initializes the mutex with both `PTHREAD_PROCESS_SHARED` and
+Queue layout version 3 initializes the mutex with both `PTHREAD_PROCESS_SHARED` and
 `PTHREAD_MUTEX_ROBUST`. Condition waits use `CLOCK_MONOTONIC`.
 
 When lock or timed-wait acquisition reports `EOWNERDEAD`, ring metadata may be mid-update. Recovery

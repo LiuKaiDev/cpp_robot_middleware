@@ -65,7 +65,7 @@ TEST(RegistryLivenessTest, DeadCleanupReturnsExactResourcesAndPeerEvents) {
         202U,
         4096U,
         4U,
-        2U,
+        3U,
         static_cast<std::uint16_t>(mw::OverflowPolicy::BlockWithTimeout),
         100U};
     const auto subscriber =

@@ -61,6 +61,8 @@ struct PublishResult {
     std::uint32_t dropped_newest{0};
     std::uint32_t dropped_oldest{0};
     std::uint32_t block_timeouts{0};
+    std::uint32_t blocked_count{0};
+    std::uint64_t blocked_time_ns{0};
 
     bool ok() const noexcept { return error == ErrorCode::Ok; }
     explicit operator bool() const noexcept { return ok(); }

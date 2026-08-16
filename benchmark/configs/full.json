@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "name": "phase8_full",
+  "transports": ["uds", "shm_copy", "shm_loan", "ros2"],
+  "message_sizes": [64, 1024, 4096, 65536, 1048576, 4194304],
+  "subscriber_counts": [1, 2, 4],
+  "profiles": ["latency", "throughput"],
+  "warmup_seconds": 2.0,
+  "measurement_seconds": 5.0,
+  "cooldown_seconds": 1.0,
+  "repetitions": 3,
+  "queue_depth": 8,
+  "overflow_policy": "block_with_timeout",
+  "block_timeout_ms": 100,
+  "default_latency_rate_hz": 500,
+  "latency_rates_hz": {
+    "64": 1000,
+    "1024": 1000,
+    "4096": 1000,
+    "65536": 500,
+    "1048576": 50,
+    "4194304": 10
+  },
+  "latency_sample_stride": {
+    "latency": 1,
+    "throughput": 1000
+  },
+  "max_latency_samples": 1000000,
+  "receive_timeout_ms": 100,
+  "readiness_timeout_seconds": 20,
+  "shutdown_timeout_seconds": 15,
+  "monitor_interval_seconds": 0.1,
+  "ordering_seed": 8101,
+  "ros_domain_id": 181,
+  "backpressure": {
+    "enabled": true,
+    "message_size": 65536,
+    "subscriber_count": 1,
+    "queue_depth": 2,
+    "block_timeout_ms": 1,
+    "slow_subscriber_us": 2000,
+    "policies": ["drop_newest", "drop_oldest", "block_with_timeout"]
+  }
+}

@@ -160,9 +160,10 @@ DEAD records have already been removed.
   its first compatible subscriber while its dedicated heartbeat connection remains responsive.
 - Registry sessions are intended to be called serially by an application; concurrent request
   multiplexing is not implemented.
-- SHM discovery returns all current subscribers; the copied UDS baseline remains one-to-one.
+- SHM and UDS discovery return all current subscribers; one active publisher fans out one logical
+  message to each independent endpoint.
 - The registry maps a registered dead-subscriber queue only for bounded robust close/repair. It
   never creates data-plane storage, forwards payloads, or scans namespaces.
 - A heartbeat connection failure ends renewal for that session; automatic registry-daemon
   reconnection within an existing context is not implemented.
-- No ROS2 adapter or benchmark framework is implemented.
+- Discovery remains single-host and does not implement distributed middleware.

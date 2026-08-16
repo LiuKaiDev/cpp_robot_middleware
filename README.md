@@ -13,12 +13,12 @@ provides a focused environment for studying the IPC, resource-lifetime, backpres
 performance tradeoffs beneath a robotics communication API without implementing a full DDS or
 ROS2 RMW stack.
 
-## Current Status: Phase 7 - ROS2 Adapter
+## Current Status: Phase 8 - Automated Benchmark
 
-Phase 7 adds an independent bidirectional ROS2 adapter for `std_msgs/msg/String`,
-`geometry_msgs/msg/Twist`, and `sensor_msgs/msg/Image`. It serializes through public `rclcpp` APIs
-and bridges both UDS and SHM middleware transports. The middleware core remains ROS2-independent;
-the adapter is a separate ament package that consumes installed `mw::mw_core`.
+Phase 8 adds a reproducible cross-process benchmark for custom UDS, SHM copy, SHM loan, and direct
+ROS2 Jazzy with `rmw_fastrtps_cpp`. It covers six exact payload sizes, 1-to-1/2/4 topologies,
+latency and throughput profiles, process CPU/RSS, correctness/loss accounting, repeated
+aggregation, backpressure, and deterministic plots. The middleware core remains ROS2-independent.
 
 ## Architecture Direction
 
@@ -83,6 +83,15 @@ core library remains independent of ROS2. The dependency direction is exclusivel
 - ROS parameter configuration, launch file, and six-section YAML examples
 - Bidirectional real-process ROS2 integration tests, including a 1280x720 RGB8 Image
 - Real `ros2 topic pub --once`, normal cleanup, and bridge `SIGKILL` cleanup coverage
+- Registry-discovered UDS fanout to 1, 2, or 4 independent subscriber processes
+- Separate UDS, SHM copy, SHM loan, and direct ROS2 benchmark endpoints
+- Exact-size deterministic payload envelope with monotonic one-way latency validation
+- Fixed-rate latency and maximum-rate throughput profiles with bounded raw sampling
+- Automated warmup, measurement, cooldown, readiness, monitoring, and exact child cleanup
+- `/proc` measurement-window process CPU ticks and periodic mean/peak RSS collection
+- Per-run correctness, loss, throughput, latency, CPU, RSS, overflow, allocation, and block metrics
+- Three-repetition median/min/max aggregation and deterministic JSON/CSV/PNG output
+- Focused slow-subscriber comparison of all three SHM backpressure policies
 
 ## Build
 
@@ -142,7 +151,7 @@ direct UDS mode. See [docs/FAILURE_MODEL.md](docs/FAILURE_MODEL.md) for liveness
 behavior, [docs/DATA_PLANE.md](docs/DATA_PLANE.md) for both payload paths,
 [docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md) for discovery,
 [docs/MEMORY_POOL.md](docs/MEMORY_POOL.md) for the pool layout, and
-[docs/QUEUES_AND_LOANING.md](docs/QUEUES_AND_LOANING.md) for Phase 5 queue and RAII lifecycles.
+[docs/QUEUES_AND_LOANING.md](docs/QUEUES_AND_LOANING.md) for queue/RAII lifecycles.
 
 ## ROS2 Adapter
 
@@ -172,6 +181,45 @@ ros2 launch mw_ros2_adapter bridge.launch.py \
 
 See [docs/ROS2_ADAPTER.md](docs/ROS2_ADAPTER.md) for parameters, YAML examples, bidirectional
 demos, type compatibility, shutdown behavior, and exact serialization/copy boundaries.
+
+## Automated Benchmark
+
+The mandatory matrix is four transports x six sizes x three topologies x two profiles x three
+repetitions: 432 main runs. The full runner also executes nine focused backpressure runs. Sizes are
+exact application byte counts: 64 B, 1 KiB, 4 KiB, 64 KiB, 1 MiB, and 4 MiB. Every subscriber is
+an independent process. The direct ROS2 baseline uses `std_msgs/msg/UInt8MultiArray` and never
+passes through the Phase 7 adapter.
+
+Build both Release benchmark packages, source ROS2, and run smoke or full automation:
+
+```bash
+cmake -S . -B build_release \
+  -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+cmake --build build_release -j
+
+source /opt/ros/jazzy/setup.bash
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+colcon --log-base log_ros2_benchmark build \
+  --base-paths benchmark/ros2 \
+  --build-base build_ros2_benchmark \
+  --install-base install_ros2_benchmark \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+python3 benchmark/python/run_benchmarks.py \
+  --config benchmark/configs/smoke.json
+python3 benchmark/python/run_benchmarks.py \
+  --config benchmark/configs/full.json
+```
+
+Warmup/discovery and cooldown are excluded from the steady-state window. Full defaults are 2
+seconds warmup, 5 seconds measurement, 1 second cooldown, queue depth 8, and three repetitions.
+Results retain median/min/max rather than selecting a best repetition. Process CPU comes from
+measurement-boundary `/proc/<pid>/stat` tick deltas; RSS is sampled from `/proc/<pid>/status`.
+
+See [docs/BENCHMARK.md](docs/BENCHMARK.md) for transport boundaries, fairness, payload/timestamp
+definitions, all metrics, one-case commands, result schema, interpretation, and limitations.
+Compact measured results and the four selected plots are recorded in
+`benchmark/results/phase8_reference/` and analyzed in `PHASE_8_REPORT.md`.
 
 ## Install
 
@@ -210,20 +258,26 @@ target_link_libraries(example PRIVATE mw::mw_core)
 - Phase 5: Ring buffer, backpressure, and loaned samples.
 - Phase 6: Heartbeat, crash recovery, and resource cleanup.
 - Phase 7: ROS2 adapter (complete).
-- Phase 8: Benchmarking, profiling, and evidence-based optimization.
+- Phase 8: Automated benchmark (complete).
+- Phase 8.1: Profiling and evidence-based optimization.
 - Phase 9: Final documentation and demos.
 
 ## Known Limitations
 
-- Registry-discovered SHM supports N subscribers; the copied UDS baseline remains one-to-one.
+- UDS fanout establishes connections from discovery state present before publication; it does not
+  add a dynamic data-plane worker or reliable retransmission protocol.
 - UDS notifications remain in use; `eventfd` and `SCM_RIGHTS` optimizations are deferred.
 - The heartbeat lease covers process liveness while the registry daemon is running; it does not
   cover distributed hosts, kernel failure, power loss, or arbitrary memory corruption.
 - The ROS2 adapter supports only String, Twist, and Image; it has no dynamic introspection or
   complete ROS schema-evolution system.
 - The ROS2 serialized bridge path allocates/copies adapter buffers and is not end-to-end zero-copy.
-- No benchmark framework, profiling result, ROS2 performance comparison, or final
-  metrics/visualization system exists.
+- Phase 8 measures one host session without CPU affinity, scheduler priority, system-load control,
+  or hard real-time guarantees; it does not attribute bottlenecks without Phase 8.1 profiling.
+- Direct ROS2 uses `UInt8MultiArray` with normal `rmw_fastrtps_cpp` behavior. Its Reliable KeepLast
+  setting and middleware `BLOCK_WITH_TIMEOUT` are not semantically identical QoS guarantees.
+- Throughput-profile latency uses documented systematic sampling and is not a complete tail
+  distribution.
 - Registry requests are synchronous and are not multiplexed across application threads.
 - The UDS path copies payload data through kernel socket buffers and is not zero-copy.
 - Ordinary SHM `publish()` copies into the pool, and owning `ReceivedMessage` copies from a

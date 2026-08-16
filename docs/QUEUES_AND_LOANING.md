@@ -37,7 +37,9 @@ checked-size overflow are rejected.
 The native local-host layout consists of `SubscriberQueueHeader`, alignment padding, and exactly
 `capacity` `ChunkHandle` slots. Header state includes head, tail, current size, capacity, high-water
 mark, close state, attachment count, policy, timeout, policy/repair counters, one robust
-process-shared mutex, and one process-shared condition variable. The queue layout version is 2.
+process-shared mutex, and one process-shared condition variable. Queue layout version 3 adds exact
+blocked-operation and blocked-time counters used by the benchmark; it does not change the Phase 5
+queue policies.
 
 Each entry is only:
 

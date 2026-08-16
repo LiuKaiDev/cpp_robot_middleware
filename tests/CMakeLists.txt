@@ -1,5 +1,6 @@
 find_package(GTest 1.14 REQUIRED)
 find_package(Threads REQUIRED)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 function(mw_add_gtest target source)
     add_executable(${target} ${source})
@@ -32,6 +33,7 @@ mw_add_gtest(mw_shm_protocol_test unit/shm_protocol_test.cpp)
 mw_add_gtest(mw_pool_protocol_test unit/pool_protocol_test.cpp)
 mw_add_gtest(mw_memory_pool_test unit/memory_pool_test.cpp)
 mw_add_gtest(mw_subscriber_queue_test unit/subscriber_queue_test.cpp Threads::Threads)
+mw_add_gtest(mw_benchmark_common_test unit/benchmark_common_test.cpp mw_benchmark_common)
 mw_add_gtest(mw_pubsub_test integration/pubsub_test.cpp Threads::Threads)
 mw_add_gtest(mw_process_pubsub_test integration/process_pubsub_test.cpp)
 mw_add_gtest(mw_registry_discovery_test integration/registry_discovery_test.cpp
@@ -76,11 +78,26 @@ mw_add_gtest(mw_phase5_loan_queue_test integration/phase5_loan_queue_test.cpp
              mw_registry_support Threads::Threads)
 mw_add_gtest(mw_phase6_crash_recovery_test integration/phase6_crash_recovery_test.cpp
              Threads::Threads)
+mw_add_gtest(mw_uds_multi_subscriber_test integration/uds_multi_subscriber_test.cpp
+             mw_registry_support Threads::Threads)
 target_compile_definitions(
     mw_phase6_crash_recovery_test
     PRIVATE MW_REGISTRYD_PATH="$<TARGET_FILE:mw_registryd>"
 )
 add_dependencies(mw_phase6_crash_recovery_test mw_registryd)
+
+add_test(
+    NAME mw_benchmark_python_test
+    COMMAND "${Python3_EXECUTABLE}" -m unittest discover
+            -s "${PROJECT_SOURCE_DIR}/benchmark/python/tests" -p "test_*.py"
+)
+set_tests_properties(
+    mw_benchmark_python_test
+    PROPERTIES
+        TIMEOUT 30
+        RESOURCE_LOCK mw_project_ipc
+        ENVIRONMENT "PYTHONPATH=${PROJECT_SOURCE_DIR}/benchmark/python"
+)
 add_dependencies(
     mw_registry_discovery_test
     mw_registryd

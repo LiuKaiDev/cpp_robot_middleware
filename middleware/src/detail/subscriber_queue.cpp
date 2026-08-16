@@ -130,6 +130,24 @@ timespec monotonicDeadline(std::uint64_t timeout_ms) noexcept {
     return deadline;
 }
 
+timespec monotonicNow() noexcept {
+    timespec now{};
+    (void)::clock_gettime(CLOCK_MONOTONIC, &now);
+    return now;
+}
+
+std::uint64_t elapsedNanoseconds(const timespec& start, const timespec& end) noexcept {
+    const std::int64_t seconds = static_cast<std::int64_t>(end.tv_sec) -
+                                 static_cast<std::int64_t>(start.tv_sec);
+    const std::int64_t nanoseconds = static_cast<std::int64_t>(end.tv_nsec) -
+                                     static_cast<std::int64_t>(start.tv_nsec);
+    const std::int64_t elapsed = seconds * 1000000000LL + nanoseconds;
+    if (elapsed <= 0) {
+        return 0U;
+    }
+    return static_cast<std::uint64_t>(elapsed);
+}
+
 bool immutableHeaderMatches(const SubscriberQueueHeader& header,
                             const QueueDescriptor& descriptor) noexcept {
     return header.magic == kSubscriberQueueMagic && header.version == kQueueLayoutVersion &&
@@ -306,13 +324,15 @@ QueueEnqueueResult SharedSubscriberQueue::enqueue(const ChunkHandle& handle,
                                                   void* notify_context) noexcept {
     PthreadLock lock{*header_};
     if (!lock.locked()) {
-        return {QueueEnqueueStatus::SynchronizationError, std::nullopt, false};
+        return {QueueEnqueueStatus::SynchronizationError, std::nullopt, false, false, 0U};
     }
     if (header_->closed != 0U) {
         return {QueueEnqueueStatus::Closed, std::nullopt, false};
     }
 
     std::optional<ChunkHandle> dropped;
+    bool blocked = false;
+    std::uint64_t blocked_time_ns = 0U;
     bool needs_notification = header_->size == 0U;
     const auto policy = static_cast<OverflowPolicy>(header_->overflow_policy);
     if (header_->size == header_->capacity) {
@@ -328,19 +348,31 @@ QueueEnqueueResult SharedSubscriberQueue::enqueue(const ChunkHandle& handle,
             needs_notification = false;
         } else {
             const timespec deadline = monotonicDeadline(header_->block_timeout_ms);
+            const timespec blocked_start = monotonicNow();
+            blocked = true;
+            ++header_->blocked_count;
             while (header_->size == header_->capacity && header_->closed == 0U) {
                 const int error =
                     ::pthread_cond_timedwait(&header_->not_full, &header_->mutex, &deadline);
                 if (error == ETIMEDOUT) {
+                    blocked_time_ns = elapsedNanoseconds(blocked_start, monotonicNow());
+                    header_->blocked_time_ns += blocked_time_ns;
                     ++header_->block_timeouts;
-                    return {QueueEnqueueStatus::TimedOut, std::nullopt, false};
+                    return {QueueEnqueueStatus::TimedOut, std::nullopt, false, blocked,
+                            blocked_time_ns};
                 }
                 if (!recoverConditionWaitOwnerDeath(*header_, error)) {
-                    return {QueueEnqueueStatus::SynchronizationError, std::nullopt, false};
+                    blocked_time_ns = elapsedNanoseconds(blocked_start, monotonicNow());
+                    header_->blocked_time_ns += blocked_time_ns;
+                    return {QueueEnqueueStatus::SynchronizationError, std::nullopt, false,
+                            blocked, blocked_time_ns};
                 }
             }
+            blocked_time_ns = elapsedNanoseconds(blocked_start, monotonicNow());
+            header_->blocked_time_ns += blocked_time_ns;
             if (header_->closed != 0U) {
-                return {QueueEnqueueStatus::Closed, std::nullopt, false};
+                return {QueueEnqueueStatus::Closed, std::nullopt, false, blocked,
+                        blocked_time_ns};
             }
             needs_notification = header_->size == 0U;
         }
@@ -359,10 +391,11 @@ QueueEnqueueResult SharedSubscriberQueue::enqueue(const ChunkHandle& handle,
             header_->tail = header_->tail == 0U ? header_->capacity - 1U : header_->tail - 1U;
             --header_->size;
             --header_->enqueued;
-            return {QueueEnqueueStatus::NotificationFailed, std::nullopt, false};
+            return {QueueEnqueueStatus::NotificationFailed, std::nullopt, false, blocked,
+                    blocked_time_ns};
         }
     }
-    return {QueueEnqueueStatus::Accepted, dropped, notification_sent};
+    return {QueueEnqueueStatus::Accepted, dropped, notification_sent, blocked, blocked_time_ns};
 }
 
 std::optional<ChunkHandle> SharedSubscriberQueue::tryDequeue() noexcept {
@@ -490,9 +523,17 @@ QueueStats SharedSubscriberQueue::stats() noexcept {
     if (!lock.locked()) {
         return {};
     }
-    return {header_->enqueued,       header_->dequeued,       header_->dropped_newest,
-            header_->dropped_oldest, header_->block_timeouts, header_->owner_death_recoveries,
-            header_->peer_resets,    header_->size,           header_->max_size};
+    return {header_->enqueued,
+            header_->dequeued,
+            header_->dropped_newest,
+            header_->dropped_oldest,
+            header_->block_timeouts,
+            header_->blocked_count,
+            header_->blocked_time_ns,
+            header_->owner_death_recoveries,
+            header_->peer_resets,
+            header_->size,
+            header_->max_size};
 }
 
 ChunkHandle* SharedSubscriberQueue::slots() noexcept {

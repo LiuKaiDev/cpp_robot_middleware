@@ -210,8 +210,7 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
                 return ErrorCode::InvalidSharedMemory;
             }
 
-            const std::size_t connection_count =
-                config.transport == TransportType::SharedMemory ? discovery.subscribers.size() : 1U;
+            const std::size_t connection_count = discovery.subscribers.size();
             std::set<std::uint64_t> discovered_ids;
             for (std::size_t index = 0; index < connection_count; ++index) {
                 discovered_ids.insert(discovery.subscribers[index].endpoint_id);
@@ -274,26 +273,36 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
     }
 
     PublishResult publishUds(const void* data, std::size_t size, std::uint64_t next_sequence) {
-        DataConnection& connection = connections.front();
         const detail::FrameHeader header{detail::kFrameMagic, static_cast<std::uint32_t>(size),
                                          next_sequence, monotonicTimestampNs()};
         const auto encoded_header = detail::encodeFrameHeader(header);
-        const detail::IoResult header_result =
-            detail::writeAll(connection.socket.get(), encoded_header.data(), encoded_header.size());
-        if (header_result.status != detail::IoStatus::Complete) {
-            const ErrorCode error = mapIoError(header_result.status);
-            connections.clear();
-            return {error, next_sequence, 0};
+        PublishResult result{ErrorCode::ConnectionLost, next_sequence, size};
+        ErrorCode first_error = ErrorCode::Ok;
+        for (auto connection = connections.begin(); connection != connections.end();) {
+            const detail::IoResult header_result = detail::writeAll(
+                connection->socket.get(), encoded_header.data(), encoded_header.size());
+            const detail::IoResult payload_result =
+                header_result.status == detail::IoStatus::Complete
+                    ? detail::writeAll(connection->socket.get(), data, size)
+                    : header_result;
+            if (payload_result.status != detail::IoStatus::Complete) {
+                if (first_error == ErrorCode::Ok) {
+                    first_error = mapIoError(payload_result.status);
+                }
+                connection = connections.erase(connection);
+                continue;
+            }
+            ++result.enqueued;
+            ++connection;
         }
-        const detail::IoResult payload_result =
-            detail::writeAll(connection.socket.get(), data, size);
-        if (payload_result.status != detail::IoStatus::Complete) {
-            const ErrorCode error = mapIoError(payload_result.status);
-            connections.clear();
-            return {error, next_sequence, 0};
+        if (result.enqueued != 0U) {
+            sequence = next_sequence;
+            result.error = ErrorCode::Ok;
+        } else {
+            result.payload_size = 0U;
+            result.error = first_error == ErrorCode::Ok ? ErrorCode::ConnectionLost : first_error;
         }
-        sequence = next_sequence;
-        return {ErrorCode::Ok, next_sequence, size};
+        return result;
     }
 
     ErrorCode releaseReference(const detail::ChunkHandle& handle) noexcept {
@@ -501,6 +510,10 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
             WakeContext wake{connection.socket.get(), *encoded_wake};
             const detail::QueueEnqueueResult enqueue =
                 connection.queue->enqueue(handle, sendWake, &wake);
+            if (enqueue.blocked) {
+                ++result.blocked_count;
+                result.blocked_time_ns += enqueue.blocked_time_ns;
+            }
             if (enqueue.status == detail::QueueEnqueueStatus::Accepted) {
                 connection.outstanding.push_back(handle);
                 ++result.enqueued;

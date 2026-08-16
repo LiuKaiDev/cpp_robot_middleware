@@ -110,7 +110,11 @@ TEST(SubscriberQueueTest, BlockPolicyTimesOutWithMonotonicDeadline) {
     EXPECT_EQ(result.status, mw::detail::QueueEnqueueStatus::TimedOut);
     EXPECT_GE(elapsed, 40ms);
     EXPECT_LT(elapsed, 2s);
+    EXPECT_TRUE(result.blocked);
+    EXPECT_GT(result.blocked_time_ns, 0U);
     EXPECT_EQ(queue->stats().block_timeouts, 1U);
+    EXPECT_EQ(queue->stats().blocked_count, 1U);
+    EXPECT_GT(queue->stats().blocked_time_ns, 0U);
 }
 
 TEST(SubscriberQueueTest, BlockPolicyWakesWhenConsumerCreatesSpace) {
@@ -125,7 +129,10 @@ TEST(SubscriberQueueTest, BlockPolicyWakesWhenConsumerCreatesSpace) {
     EXPECT_EQ(blocked.wait_for(40ms), std::future_status::timeout);
     EXPECT_EQ(consumer->tryDequeue(), handle(1U));
     ASSERT_EQ(blocked.wait_for(2s), std::future_status::ready);
-    EXPECT_EQ(blocked.get().status, mw::detail::QueueEnqueueStatus::Accepted);
+    const auto result = blocked.get();
+    EXPECT_EQ(result.status, mw::detail::QueueEnqueueStatus::Accepted);
+    EXPECT_TRUE(result.blocked);
+    EXPECT_GT(result.blocked_time_ns, 0U);
     EXPECT_EQ(consumer->tryDequeue(), handle(2U));
 }
 

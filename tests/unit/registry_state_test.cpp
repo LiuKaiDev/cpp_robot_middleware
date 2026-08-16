@@ -129,7 +129,7 @@ TEST(RegistryStateTest, RejectsTransportMismatchAndReportsTransportInDiscovery) 
         18U,
         4096U,
         8U,
-        2U,
+        3U,
         static_cast<std::uint16_t>(mw::OverflowPolicy::DropOldest),
         100U};
     const auto subscriber =

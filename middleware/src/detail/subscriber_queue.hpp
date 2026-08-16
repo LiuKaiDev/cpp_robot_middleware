@@ -23,6 +23,8 @@ struct QueueStats {
     std::uint64_t dropped_newest{0};
     std::uint64_t dropped_oldest{0};
     std::uint64_t block_timeouts{0};
+    std::uint64_t blocked_count{0};
+    std::uint64_t blocked_time_ns{0};
     std::uint64_t owner_death_recoveries{0};
     std::uint64_t peer_resets{0};
     std::uint32_t current_size{0};
@@ -51,6 +53,8 @@ struct alignas(64) SubscriberQueueHeader {
     std::uint64_t dropped_newest{0};
     std::uint64_t dropped_oldest{0};
     std::uint64_t block_timeouts{0};
+    std::uint64_t blocked_count{0};
+    std::uint64_t blocked_time_ns{0};
     std::uint64_t owner_death_recoveries{0};
     std::uint64_t peer_resets{0};
     pthread_mutex_t mutex{};
@@ -70,6 +74,8 @@ struct QueueEnqueueResult {
     QueueEnqueueStatus status{QueueEnqueueStatus::SynchronizationError};
     std::optional<ChunkHandle> dropped_oldest;
     bool notification_sent{false};
+    bool blocked{false};
+    std::uint64_t blocked_time_ns{0};
 };
 
 using QueueNotifyCallback = bool (*)(void* context) noexcept;

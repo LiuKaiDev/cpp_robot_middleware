@@ -36,7 +36,7 @@ bool validQueueMetadata(TransportType transport, const SharedQueueMetadata& queu
            queue.shm_name.front() == '/' && queue.shm_name.find('\0') == std::string::npos &&
            queue.shm_name.find('/', 1U) == std::string::npos && queue.queue_id != 0U &&
            queue.segment_size != 0U && queue.capacity != 0U && queue.capacity <= 65536U &&
-           queue.layout_version == 2U && valid_policy && queue.block_timeout_ms != 0U;
+           queue.layout_version == 3U && valid_policy && queue.block_timeout_ms != 0U;
 }
 
 } // namespace

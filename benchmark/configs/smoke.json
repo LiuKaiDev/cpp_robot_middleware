@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "name": "phase8_smoke",
+  "transports": ["uds", "shm_copy", "shm_loan", "ros2"],
+  "message_sizes": [64, 65536],
+  "subscriber_counts": [1],
+  "profiles": ["latency", "throughput"],
+  "warmup_seconds": 0.2,
+  "measurement_seconds": 0.5,
+  "cooldown_seconds": 0.2,
+  "repetitions": 1,
+  "queue_depth": 8,
+  "overflow_policy": "block_with_timeout",
+  "block_timeout_ms": 100,
+  "default_latency_rate_hz": 200,
+  "latency_rates_hz": {
+    "64": 200,
+    "65536": 100
+  },
+  "latency_sample_stride": {
+    "latency": 1,
+    "throughput": 100
+  },
+  "max_latency_samples": 200000,
+  "receive_timeout_ms": 50,
+  "readiness_timeout_seconds": 15,
+  "shutdown_timeout_seconds": 10,
+  "monitor_interval_seconds": 0.1,
+  "ordering_seed": 8101,
+  "ros_domain_id": 181,
+  "backpressure": {
+    "enabled": false,
+    "message_size": 65536,
+    "subscriber_count": 1,
+    "queue_depth": 2,
+    "block_timeout_ms": 1,
+    "slow_subscriber_us": 2000,
+    "policies": ["drop_newest", "drop_oldest", "block_with_timeout"]
+  }
+}
