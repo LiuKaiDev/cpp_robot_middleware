@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import pathlib
+import tempfile
 import types
 import unittest
 
+from analyze_results import write_outputs
 from benchmark_analysis import (
     aggregate_repetitions,
     mebibytes_per_second,
@@ -16,6 +18,30 @@ from run_benchmarks import build_cases, parse_process_ticks, shm_pool_classes
 
 
 class AnalysisTest(unittest.TestCase):
+    def test_summary_csv_uses_lf_line_endings(self) -> None:
+        result = {
+            "cases": [
+                {
+                    "transport": "uds",
+                    "profile": "latency",
+                    "message_size_bytes": 64,
+                    "subscriber_count": 1,
+                    "experiment": "main",
+                    "overflow_policy": "block_with_timeout",
+                    "repetitions_total": 1,
+                    "repetitions_valid": 1,
+                    "valid_result": True,
+                    "latency_p50_ns": {"median": 10.0, "min": 10.0, "max": 10.0},
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            write_outputs(root, result)
+            csv_bytes = (root / "aggregated/summary.csv").read_bytes()
+        self.assertNotIn(b"\r", csv_bytes)
+        self.assertTrue(csv_bytes.endswith(b"\n"))
+
     def test_percentiles_use_documented_linear_interpolation(self) -> None:
         values = [0, 10, 20, 30, 40]
         self.assertEqual(percentile(values, 0.50), 20.0)
@@ -49,6 +75,7 @@ class AnalysisTest(unittest.TestCase):
             "profile": "latency",
             "message_size_bytes": 64,
             "subscriber_count": 1,
+            "publish_attempts": 10,
             "messages_published": 10,
             "messages_received_total": 10,
             "payload_errors": 0,
@@ -74,11 +101,13 @@ class AnalysisTest(unittest.TestCase):
         }
         self.assertEqual(validate_summary(base), [])
         second = dict(base)
+        second["publish_attempts"] = 14
         second["latency_p50_ns"] = 14.0
         second["queue_overflow_count"] = 4
         second["blocked_count"] = 2
         aggregated = aggregate_repetitions([base, second])
         self.assertEqual(aggregated["latency_p50_ns"]["median"], 12.0)
+        self.assertEqual(aggregated["publish_attempts"], {"median": 12.0, "min": 10.0, "max": 14.0})
         self.assertEqual(aggregated["queue_overflow_count"], {"median": 2.0, "min": 0.0, "max": 4.0})
         self.assertEqual(aggregated["blocked_count"], {"median": 1.0, "min": 0.0, "max": 2.0})
         self.assertEqual(aggregated["repetitions_valid"], 2)

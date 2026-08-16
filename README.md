@@ -221,6 +221,51 @@ definitions, all metrics, one-case commands, result schema, interpretation, and 
 Compact measured results and the four selected plots are recorded in
 `benchmark/results/phase8_reference/` and analyzed in `PHASE_8_REPORT.md`.
 
+### Measured Results Summary
+
+The committed Release run used Git revision `cf353091f7149ac4f458ec77d98f23bb948155b2`
+on WSL2 with an Intel i5-8300H, ROS2 Jazzy, and `rmw_fastrtps_cpp`. All 432 main and 9
+backpressure runs were valid. Across the main matrix, payload errors, duplicate/out-of-order
+sequence errors, custom transport drops, queue timeouts, and allocation failures were zero; the
+focused backpressure runs intentionally triggered policy drops/timeouts.
+
+Selected 1-to-1 medians show the size-dependent crossover. Latency is fixed-rate p50 in
+microseconds; throughput is correct delivered MiB/s at maximum rate.
+
+| Size | Metric | UDS | SHM Copy | SHM Loan | ROS2 |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 64 KiB | p50 us | 103.7 | 245.6 | 247.1 | 181.5 |
+| 64 KiB | MiB/s | 1103.5 | 495.0 | 512.3 | 516.4 |
+| 1 MiB | p50 us | 747.0 | 403.3 | 278.9 | 11206.0 |
+| 1 MiB | MiB/s | 1181.9 | 1435.1 | 1522.4 | 1010.2 |
+| 4 MiB | p50 us | 1781.4 | 623.0 | 272.5 | 11895.9 |
+| 4 MiB | MiB/s | 1170.3 | 1546.3 | 1593.1 | 1005.1 |
+
+On this run, UDS led both SHM paths through 64 KiB. SHM crossed over at 1 MiB; at 4 MiB, SHM
+Copy/Loan p50 was 2.86x/6.54x lower than UDS and delivered throughput was 32%/36% higher. Loan
+changed little at small sizes, while its 1 MiB/4 MiB p50 was 1.45x/2.29x lower than Copy. At
+64 KiB, aggregate delivery from 1 to 4 subscribers rose 1.86x UDS, 2.58x Copy, 2.37x Loan, and
+2.16x ROS2 while publisher logical throughput declined for every transport.
+
+Direct ROS2 maximum-rate cases recorded finite-history sequence gaps, including 3.80% drop at
+64 KiB 1-to-1 and 9.83% at 1-to-4; only correct delivery is reported above. Fixed-rate latency
+was effectively loss-free. These observations are measurements, not Phase 8.1 bottleneck
+attributions.
+
+### Selected Charts
+
+![Latency versus message size](benchmark/results/phase8_reference/latency_vs_message_size.png)
+
+![Throughput versus message size](benchmark/results/phase8_reference/throughput_vs_message_size.png)
+
+![CPU versus message size](benchmark/results/phase8_reference/cpu_vs_message_size.png)
+
+![Subscriber count versus throughput](benchmark/results/phase8_reference/subscriber_count_vs_throughput.png)
+
+The complete p50/p90/p99, messages/s, logical/delivered throughput, per-process CPU/RSS,
+drop/overflow/allocation/block metrics, min/max repetition ranges, and backpressure analysis are
+in [PHASE_8_REPORT.md](PHASE_8_REPORT.md).
+
 ## Install
 
 ```bash

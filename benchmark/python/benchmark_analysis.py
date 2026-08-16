@@ -13,6 +13,7 @@ REQUIRED_SUMMARY_FIELDS = {
     "profile",
     "message_size_bytes",
     "subscriber_count",
+    "publish_attempts",
     "messages_published",
     "messages_received_total",
     "payload_errors",
@@ -116,6 +117,7 @@ def aggregate_repetitions(summaries: Sequence[dict[str, Any]]) -> dict[str, Any]
             raise ValueError("cannot aggregate repetitions with different case identity")
 
     metrics = (
+        "publish_attempts",
         "messages_published",
         "messages_received_total",
         "latency_p50_ns",

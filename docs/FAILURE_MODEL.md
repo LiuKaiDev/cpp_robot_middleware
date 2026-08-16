@@ -169,4 +169,5 @@ visualization system.
 - The event cache is bounded and may drop the oldest event under extreme churn; discovery and
   socket reconciliation remain the fallback sources of current endpoint truth.
 - Robust pthread behavior and shared atomic layout are local Linux/compiler ABI assumptions.
-- No ROS2 adapter, benchmark framework, final metrics visualization, or Phase 7 code is included.
+- The Phase 7 adapter and Phase 8 benchmark reuse these cleanup guarantees; they do not extend the
+  failure model to distributed hosts, registry restart recovery, or arbitrary memory corruption.

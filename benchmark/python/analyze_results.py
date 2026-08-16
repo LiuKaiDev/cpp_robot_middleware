@@ -83,7 +83,7 @@ def write_outputs(run_root: pathlib.Path, result: dict[str, Any]) -> None:
         rows.append(row)
     fieldnames = sorted({field for row in rows for field in row})
     with (output_dir / "summary.csv").open("w", encoding="utf-8", newline="") as output:
-        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer = csv.DictWriter(output, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
