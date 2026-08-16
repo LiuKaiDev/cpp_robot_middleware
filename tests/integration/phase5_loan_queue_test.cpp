@@ -242,6 +242,60 @@ TEST(Phase5PublicApiTest, OnePublisherLoansOneLogicalChunkToFourSubscribers) {
     EXPECT_TRUE(publisher.loan(2048U).valid());
 }
 
+TEST(Phase5PublicApiTest, ConnectedPublisherDiscoversAnAdditionalSubscriber) {
+    RegistryHarness registry{"refresh"};
+    mw::Context publisher_context{"phase5_refresh_publisher", registry.config()};
+    auto publisher = publisher_context.createPublisher(
+        "/phase5/refresh", publisherConfig(256U, {{256U, 4U}}));
+    mw::Context first_context{"phase5_refresh_subscriber_1", registry.config()};
+    auto first = first_context.createSubscriber(
+        "/phase5/refresh", subscriberConfig(registry.dataPath("refresh_1"), 256U));
+
+    const std::array<std::uint8_t, 32U> payload{};
+    ASSERT_EQ(publisher.publish(payload.data(), payload.size()).enqueued, 1U);
+    ASSERT_TRUE(first.waitAndTakeView(2s).has_value());
+
+    mw::Context second_context{"phase5_refresh_subscriber_2", registry.config()};
+    auto second = second_context.createSubscriber(
+        "/phase5/refresh", subscriberConfig(registry.dataPath("refresh_2"), 256U));
+
+    bool discovered = false;
+    const auto deadline = std::chrono::steady_clock::now() + 500ms;
+    while (std::chrono::steady_clock::now() < deadline) {
+        const auto result = publisher.publish(payload.data(), payload.size());
+        ASSERT_EQ(result.error, mw::ErrorCode::Ok);
+        ASSERT_TRUE(first.waitAndTakeView(2s).has_value());
+        if (result.enqueued == 2U) {
+            ASSERT_TRUE(second.waitAndTakeView(2s).has_value());
+            discovered = true;
+            break;
+        }
+        ASSERT_EQ(result.enqueued, 1U);
+        std::this_thread::sleep_for(1ms);
+    }
+    EXPECT_TRUE(discovered);
+}
+
+TEST(Phase5PublicApiTest, WakeNotificationsRemainBoundedWhenQueueReturnsToEmpty) {
+    RegistryHarness registry{"wake_drain"};
+    mw::Context publisher_context{"phase5_wake_publisher", registry.config()};
+    auto publisher = publisher_context.createPublisher(
+        "/phase5/wake_drain", publisherConfig(256U, {{256U, 2U}}));
+    mw::Context subscriber_context{"phase5_wake_subscriber", registry.config()};
+    auto subscriber = subscriber_context.createSubscriber(
+        "/phase5/wake_drain", subscriberConfig(registry.dataPath("wake_drain"), 256U));
+
+    for (std::uint64_t sequence = 1U; sequence <= 5000U; ++sequence) {
+        auto sample = publisher.loan(32U);
+        ASSERT_TRUE(sample.valid()) << sequence;
+        const auto result = sample.publish();
+        ASSERT_EQ(result.error, mw::ErrorCode::Ok) << sequence;
+        auto view = subscriber.waitAndTakeView(2s);
+        ASSERT_TRUE(view.has_value()) << sequence;
+        EXPECT_EQ(view->sequence(), sequence);
+    }
+}
+
 TEST(Phase5BackpressureTest, DropNewestAndDropOldestPreserveExpectedSequences) {
     for (const auto policy : {mw::OverflowPolicy::DropNewest, mw::OverflowPolicy::DropOldest}) {
         RegistryHarness registry{policy == mw::OverflowPolicy::DropNewest ? "newest" : "oldest"};

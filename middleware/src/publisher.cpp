@@ -31,6 +31,8 @@
 namespace mw {
 namespace {
 
+constexpr auto kShmDiscoveryRefreshInterval = std::chrono::milliseconds{1};
+
 bool validTransport(TransportType transport) noexcept {
     return transport == TransportType::UnixDomainSocket || transport == TransportType::SharedMemory;
 }
@@ -196,6 +198,11 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
         if (config.transport == TransportType::UnixDomainSocket && !connections.empty()) {
             return ErrorCode::Ok;
         }
+        const auto now = std::chrono::steady_clock::now();
+        if (config.transport == TransportType::SharedMemory && !discovery_refresh_required &&
+            !connections.empty() && now < next_discovery_refresh) {
+            return ErrorCode::Ok;
+        }
 
         try {
             const detail::RegistryDiscovery discovery = registry_session->resolve(endpoint_id);
@@ -262,6 +269,9 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
                 negotiated_max_message_size =
                     std::min(negotiated_max_message_size, connection.max_message_size);
             }
+            discovery_refresh_required = false;
+            next_discovery_refresh =
+                std::chrono::steady_clock::now() + kShmDiscoveryRefreshInterval;
             return connections.empty() ? ErrorCode::ConnectionLost : ErrorCode::Ok;
         } catch (const MiddlewareError& error) {
             return error.code();
@@ -334,6 +344,7 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
             }
         }
         failed_endpoint_ids.insert(dead_endpoint_id);
+        discovery_refresh_required = true;
     }
 
     void processPeerEvents() noexcept {
@@ -418,6 +429,7 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
                 if (dead_endpoint_id != 0U) {
                     failed_endpoint_ids.insert(dead_endpoint_id);
                 }
+                discovery_refresh_required = true;
             } else {
                 ++iterator;
             }
@@ -652,6 +664,8 @@ struct Publisher::Impl : detail::LoanedSampleOwner {
     std::size_t negotiated_max_message_size{0};
     std::uint64_t sequence{0};
     std::set<std::uint64_t> failed_endpoint_ids;
+    std::chrono::steady_clock::time_point next_discovery_refresh{};
+    bool discovery_refresh_required{true};
 };
 
 Publisher::Publisher(std::string topic, const PublisherConfig& config) {

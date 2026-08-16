@@ -336,6 +336,21 @@ struct Subscriber::Impl {
         return ErrorCode::Ok;
     }
 
+    ErrorCode drainWakeNotificationsNonBlocking() {
+        if (!release_context || !pool_view) {
+            return ErrorCode::Ok;
+        }
+        while (true) {
+            const ErrorCode error = receiveWakeAvailable();
+            if (error == ErrorCode::Timeout) {
+                return ErrorCode::Ok;
+            }
+            if (error != ErrorCode::Ok) {
+                return error;
+            }
+        }
+    }
+
     std::optional<ViewData> tryTakeQueued() {
         if (!queue || !pool_view || !release_context) {
             return std::nullopt;
@@ -551,6 +566,17 @@ std::optional<SampleView> Subscriber::waitAndTakeView(std::chrono::milliseconds 
 
     impl_->processPeerEvents();
     impl_->last_error = ErrorCode::Ok;
+
+    const ErrorCode pending_wake_error = impl_->drainWakeNotificationsNonBlocking();
+    if (pending_wake_error != ErrorCode::Ok) {
+        impl_->last_error = pending_wake_error;
+        if (pending_wake_error == ErrorCode::ConnectionLost) {
+            impl_->resetPublisherState(impl_->discovered_pool.pool_id);
+        } else {
+            impl_->resetConnection();
+        }
+        return std::nullopt;
+    }
 
     timeout = std::max(timeout, std::chrono::milliseconds{0});
     const auto deadline = std::chrono::steady_clock::now() + timeout;
