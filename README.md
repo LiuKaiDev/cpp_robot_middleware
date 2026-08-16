@@ -219,7 +219,8 @@ measurement-boundary `/proc/<pid>/stat` tick deltas; RSS is sampled from `/proc/
 See [docs/BENCHMARK.md](docs/BENCHMARK.md) for transport boundaries, fairness, payload/timestamp
 definitions, all metrics, one-case commands, result schema, interpretation, and limitations.
 Compact measured results and the four selected plots are recorded in
-`benchmark/results/phase8_reference/` and analyzed in `PHASE_8_REPORT.md`.
+`benchmark/results/phase8_reference/` and analyzed in
+[`docs/reports/PHASE_8_REPORT.md`](docs/reports/PHASE_8_REPORT.md).
 
 ### Measured Results Summary
 
@@ -264,7 +265,7 @@ attributions.
 
 The complete p50/p90/p99, messages/s, logical/delivered throughput, per-process CPU/RSS,
 drop/overflow/allocation/block metrics, min/max repetition ranges, and backpressure analysis are
-in [PHASE_8_REPORT.md](PHASE_8_REPORT.md).
+in [docs/reports/PHASE_8_REPORT.md](docs/reports/PHASE_8_REPORT.md).
 
 ## Install
 

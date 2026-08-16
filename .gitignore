@@ -1,11 +1,9 @@
 # CMake / build outputs
-build/
-build_*/
-_install/
-install_ros2*/
-log_ros2*/
-install_ros2_benchmark*/
-log/
+/.work/
+/build*/
+/_install/
+/install*/
+/log*/
 __pycache__/
 *.py[cod]
 benchmark/results/*

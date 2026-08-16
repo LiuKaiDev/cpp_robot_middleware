@@ -117,3 +117,22 @@ git push origin phase-0
 
 Then request the Phase 1 Codex task. Do not let Codex continue directly into
 Phase 1 from the Phase 0 prompt.
+
+## 10. Temporary Work And Permanent Artifacts
+
+All phase-local build, install, log, sanitizer, and raw profiling output belongs under:
+
+```text
+.work/phase_X/
+```
+
+Do not create ad hoc `build_*`, `install_*`, or `log_*` directories in the repository root. After
+the phase report and compact evidence are safely written, remove the phase work tree:
+
+```bash
+cmake -E remove_directory .work/phase_X
+```
+
+Source, tests, documentation, `CODEX_TASKS/`, reports under `docs/reports/`, and compact benchmark
+or profiling reference artifacts are permanent repository content and must not be removed during
+work-tree cleanup.
